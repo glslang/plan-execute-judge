@@ -1,0 +1,24 @@
+{
+  "name": "plan-execute-judge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Generic plan -> execute -> judge orchestration built on the Claude Agent SDK (TypeScript).",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "npm run build && node --test \"dist/*.test.js\"",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}
