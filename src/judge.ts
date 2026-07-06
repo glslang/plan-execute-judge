@@ -4,7 +4,10 @@ import { VerdictSchema, type Verdict, type PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 
-const verdictJsonSchema = z.toJSONSchema(VerdictSchema);
+// zod v4 emits a top-level "$schema" meta-key that the SDK silently rejects:
+// the run succeeds but result.structured_output comes back undefined. Strip it.
+const { $schema: _dropped, ...verdictJsonSchema } = z.toJSONSchema(VerdictSchema);
+export { verdictJsonSchema };
 
 /**
  * Reviews the working tree against the plan and nothing else -- it never sees

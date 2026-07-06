@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runPipeline, type PipelinePhases } from "./orchestrator.js";
 import { DEFAULT_CONFIG, VerdictSchema, type PipelineConfig, type Verdict } from "./types.js";
+import { verdictJsonSchema } from "./judge.js";
 
 function makeCfg(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
   return { ...DEFAULT_CONFIG, task: "add a thing", cwd: ".", ...overrides };
@@ -71,6 +72,13 @@ test("rejects a non-positive or non-integer maxRounds", async () => {
     const { phases } = makePhases([PASS]);
     await assert.rejects(runPipeline(makeCfg({ maxRounds }), phases), /maxRounds/);
   }
+});
+
+test("verdict JSON schema carries no $schema meta-key", () => {
+  // zod v4's toJSONSchema emits one; the Agent SDK silently drops
+  // structured_output when it's present (found by live smoke test).
+  assert.equal("$schema" in verdictJsonSchema, false);
+  assert.equal((verdictJsonSchema as Record<string, unknown>).type, "object");
 });
 
 test("VerdictSchema accepts a valid verdict and rejects malformed ones", () => {
