@@ -5,36 +5,126 @@ Three `query()` calls chained by real control flow. The plan text and a typed
 verdict are the only data crossing phase boundaries -- never a conversation
 transcript. `PLAN.md` is written as a human-readable artifact of the run.
 
-## Layout
-
 ```
-src/
-  types.ts             PipelineConfig, the Verdict zod schema, defaults
-  permissions.ts       Bash-command vetting hook for the read-only phases
-  plan.ts              read-only research -> plan text (also saved to PLAN.md)
-  execute.ts           implements the plan (or fixes gaps from a prior verdict)
-  judge.ts             reviews the tree against plan + task, returns a typed Verdict
-  orchestrator.ts      execute -> judge loop, bounded by maxRounds, injectable phases
-  index.ts             CLI entry: git preflight, baseline capture, env overrides
-  util.ts              drains a query() stream, throws on non-"success" results
-  *.test.ts            node:test unit tests (orchestrator loop, command vetting)
+task ─> plan (read-only research) ─> plan text (saved to PLAN.md)
+                                          │
+            ┌─────────────────────────────┘
+            v
+      execute (acceptEdits -- implements the plan, leaves changes uncommitted)
+            │
+            v
+      judge (read-only -- diffs vs baseline, re-runs every acceptance criterion)
+            │  typed verdict { pass, summary, gaps[] }
+            ├─ pass ─> exit 0
+            └─ fail ─> gaps feed the next execute round ─> ... ─> exit 1 after maxRounds
 ```
 
 ## Setup
 
 ```
 npm install
-cp .env.example .env   # set ANTHROPIC_API_KEY
-npm test               # build + unit tests (needs Node >= 22)
+npm test          # build + unit tests (needs Node >= 22.9)
+```
+
+Authentication, in order of least effort:
+
+- **Machine already logged into Claude Code** -- nothing to do; the Agent SDK
+  picks up the same credentials.
+- **API key in the environment** -- `export ANTHROPIC_API_KEY=sk-ant-...`
+- **API key in a file** -- `cp .env.example .env` and set the key there; the
+  start script loads it via Node's `--env-file-if-exists`.
+
+## Usage
+
+### CLI
+
+Run it from inside the repo you want it to work on, or point `PEJ_TARGET_CWD`
+at one. The target must be a git repo -- the CLI refuses to start otherwise,
+and records `HEAD` as the baseline the judge diffs against.
+
+```sh
+cd ~/code/my-service
+node ~/tools/plan-execute-judge/dist/index.js \
+  "add rate limiting to the /upload endpoint, 10 req/min per IP"
+```
+
+or, from this repo's own directory:
+
+```sh
+PEJ_TARGET_CWD=~/code/my-service \
+PEJ_MODEL=claude-sonnet-5 \
+PEJ_MAX_ROUNDS=2 \
 npm start -- "add rate limiting to the /upload endpoint, 10 req/min per IP"
 ```
 
-Run it from inside the repo you want it to work on, or set `PEJ_TARGET_CWD`.
-It must be a git repo -- the CLI refuses to start otherwise, and captures the
-current `HEAD` as the baseline the judge diffs against.
+Each phase streams its text as it works. A passing run ends like this (real
+output from a scratch-repo run):
 
-Environment overrides: `PEJ_TARGET_CWD` (target repo), `PEJ_MODEL` (all three
-phases), `PEJ_MAX_ROUNDS` (execute -> judge cycles, default 3).
+```
+[plan] written to PLAN.md
+
+[execute] round 1/3
+...
+
+[judge] round 1/3
+...
+
+[judge] PASS -- Implementation matches the plan exactly: multiply() added and
+exported in calc.js, test added in calc.test.js, and all three acceptance
+criteria pass verbatim as specified.
+
+Done in 1 round(s).
+```
+
+Exit code `0` means the judge passed; `1` means it didn't pass within
+`maxRounds` (the last verdict's summary and gaps are printed to stderr).
+Changes are left **uncommitted** in the target's working tree for you to
+review -- the pipeline never commits.
+
+| Env var          | Meaning                                   | Default             |
+| ---------------- | ----------------------------------------- | ------------------- |
+| `PEJ_TARGET_CWD` | Repo the pipeline works on                | current directory   |
+| `PEJ_MODEL`      | Model for all three phases                | `claude-opus-4-8`   |
+| `PEJ_MAX_ROUNDS` | Execute -> judge cycles before giving up  | `3`                 |
+
+Per-phase overrides (`planModel` / `executeModel` / `judgeModel`, `maxTurns`,
+allowed tools) live in `src/types.ts` if you're forking the config.
+
+### From Claude Code
+
+Inside an interactive Claude Code session in the target repo, run it as a
+one-off with the `!` prefix:
+
+```
+! PEJ_TARGET_CWD=. npm --prefix ~/tools/plan-execute-judge start -- "add rate limiting to the /upload endpoint, 10 req/min per IP"
+```
+
+Or wire it up as a slash command so it reads as a first-class verb. Create
+`.claude/commands/pej.md` in the target repo:
+
+```markdown
+---
+description: Run the plan-execute-judge pipeline on a task
+allowed-tools: Bash(npm --prefix *)
+---
+Run this and stream its output:
+
+    PEJ_TARGET_CWD=. npm --prefix ~/tools/plan-execute-judge start -- "$ARGUMENTS"
+
+When it finishes, summarize the verdict: pass/fail, rounds used, and any
+gaps, then show `git status --short` so I can review the uncommitted changes.
+```
+
+then:
+
+```
+/pej add rate limiting to the /upload endpoint, 10 req/min per IP
+```
+
+The pipeline spawns its own headless agent sessions (it's built on the same
+runtime Claude Code uses), so running it from inside a session is just a
+subprocess -- credentials are inherited, and your interactive session stays
+free while it works.
 
 ## Design decisions worth knowing before you extend this
 
@@ -71,7 +161,10 @@ confidently on the wrong thing.
 type: "json_schema", schema: verdictJsonSchema }`, so `verdict.pass` is a
 real boolean the orchestrator branches on, not something parsed out of a
 paragraph. Keep the schema narrow (`pass`, `summary`, `gaps`) -- a free-text
-"review" field invites style commentary and scope creep on every round.
+"review" field invites style commentary and scope creep on every round. One
+sharp edge, found by live smoke test: the SDK silently drops
+`structured_output` if the schema carries the `$schema` meta-key zod emits,
+so `judge.ts` strips it (and a unit test pins that).
 
 **Everything defaults to `claude-opus-4-8`,** with independent overrides
 (`planModel` / `executeModel` / `judgeModel`) if you want a cheaper model
@@ -107,3 +200,18 @@ next execute call), giving up at `maxRounds`, and rejecting `maxRounds < 1`.
 - **CI usage:** this is already headless -- wire `npm start -- "<task>"` into
   a pipeline step and check the exit code; `1` means it didn't pass within
   `maxRounds`.
+
+## Layout
+
+```
+src/
+  types.ts             PipelineConfig, the Verdict zod schema, defaults
+  permissions.ts       Bash-command vetting hook for the read-only phases
+  plan.ts              read-only research -> plan text (also saved to PLAN.md)
+  execute.ts           implements the plan (or fixes gaps from a prior verdict)
+  judge.ts             reviews the tree against plan + task, returns a typed Verdict
+  orchestrator.ts      execute -> judge loop, bounded by maxRounds, injectable phases
+  index.ts             CLI entry: git preflight, baseline capture, env overrides
+  util.ts              drains a query() stream, throws on non-"success" results
+  *.test.ts            node:test unit tests (orchestrator loop, command vetting)
+```
