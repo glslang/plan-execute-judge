@@ -12,7 +12,7 @@ const PASS: Verdict = { pass: true, summary: "all criteria met", gaps: [] };
 const FAIL: Verdict = {
   pass: false,
   summary: "one criterion unmet",
-  gaps: [{ requirement: "step 2", issue: "empty-input test missing" }],
+  gaps: [{ kind: "implementation_gap", requirement: "step 2", issue: "empty-input test missing" }],
 };
 
 /** Phase fakes that record how they were called. */
@@ -85,4 +85,12 @@ test("VerdictSchema accepts a valid verdict and rejects malformed ones", () => {
   assert.deepEqual(VerdictSchema.parse(FAIL), FAIL);
   assert.throws(() => VerdictSchema.parse({ summary: "no pass field", gaps: [] }));
   assert.throws(() => VerdictSchema.parse({ pass: true, summary: "bad gaps", gaps: [{ requirement: "r" }] }));
+  assert.throws(() =>
+    VerdictSchema.parse({
+      pass: true,
+      summary: "pass cannot carry gaps",
+      gaps: [{ kind: "implementation_gap", requirement: "step 1", issue: "still broken" }],
+    })
+  );
+  assert.throws(() => VerdictSchema.parse({ pass: false, summary: "fail needs a gap", gaps: [] }));
 });

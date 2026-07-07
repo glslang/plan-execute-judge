@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { vetReadOnlyCommand } from "./permissions.js";
+import { vetExecuteCommand, vetReadOnlyCommand } from "./permissions.js";
 
 function allowed(command: string) {
   const v = vetReadOnlyCommand(command);
@@ -10,6 +10,16 @@ function allowed(command: string) {
 function denied(command: string) {
   const v = vetReadOnlyCommand(command);
   assert.equal(v.ok, false, `expected denied: ${command}`);
+}
+
+function allowedExecute(command: string) {
+  const v = vetExecuteCommand(command);
+  assert.equal(v.ok, true, `expected execute allowed: ${command}${v.ok ? "" : ` (denied: ${v.reason})`}`);
+}
+
+function deniedExecute(command: string) {
+  const v = vetExecuteCommand(command);
+  assert.equal(v.ok, false, `expected execute denied: ${command}`);
 }
 
 test("allows read and inspection commands", () => {
@@ -76,4 +86,24 @@ test("denies dependency mutation and network fetches", () => {
   denied("curl https://example.com");
   denied("wget https://example.com/x.sh");
   allowed("npm ls zod");
+});
+
+test("execute Bash policy allows checks but denies shell mutation", () => {
+  for (const command of ["git diff", "git status", "npm test", "npm run build", "npx vitest run", "pytest", "cargo test"]) {
+    allowedExecute(command);
+  }
+
+  for (const command of [
+    "git add .",
+    "git commit -m done",
+    "git checkout .",
+    "git stash",
+    "npm install",
+    "curl https://example.com",
+    "rm -rf dist",
+    "sed -i s/a/b/ file.ts",
+    "echo hi > file.txt",
+  ]) {
+    deniedExecute(command);
+  }
 });

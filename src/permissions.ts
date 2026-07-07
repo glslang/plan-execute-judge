@@ -1,13 +1,14 @@
 import type { HookCallbackMatcher } from "@anthropic-ai/claude-agent-sdk";
 
 /**
- * Command vetting for the "read-only" phases (plan, judge).
+ * Command vetting for guarded Bash phases.
  *
- * Those phases need Bash -- the judge has to run `git diff` and the plan's
- * acceptance-criterion commands (test suites, builds) -- so Bash can't simply
- * be dropped from `allowedTools`. Instead a PreToolUse hook vets each command
- * and denies the obvious mutation vectors: git subcommands that write, file
- * manipulation commands, package-manager installs, and output redirection.
+ * Plan/judge need Bash for inspection and verification, and execute needs it
+ * for checks while file edits go through Write/Edit. Bash can't simply be
+ * dropped from `allowedTools`, so a PreToolUse hook vets each command and
+ * denies the obvious mutation vectors: git subcommands that write, file
+ * manipulation commands, package-manager installs, network fetches, and output
+ * redirection.
  *
  * This is defense-in-depth, not a sandbox. A command like `node -e "..."`
  * can still write files, and quoting tricks can slip past the parser. The
@@ -78,12 +79,13 @@ const PKG_MANAGERS = new Set(["npm", "yarn", "pnpm", "bun", "pip", "pip3", "uv"]
 const GIT_OPTS_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace"]);
 
 export type VetResult = { ok: true } | { ok: false; reason: string };
+export type BashPolicy = "read-only" | "execute";
 
 /**
- * Best-effort static vet of a shell command for a read-only phase.
+ * Best-effort static vet of a shell command for a guarded phase.
  * Splits on `&&`, `||`, `;`, `|` and newlines, and vets each segment.
  */
-export function vetReadOnlyCommand(command: string): VetResult {
+export function vetBashCommand(command: string, _policy: BashPolicy): VetResult {
   // Redirection writes files. Allow only the harmless forms (fd dups and
   // the null device) by stripping them first; any `>` left over is a write.
   const stripped = command
@@ -134,6 +136,14 @@ export function vetReadOnlyCommand(command: string): VetResult {
   return { ok: true };
 }
 
+export function vetReadOnlyCommand(command: string): VetResult {
+  return vetBashCommand(command, "read-only");
+}
+
+export function vetExecuteCommand(command: string): VetResult {
+  return vetBashCommand(command, "execute");
+}
+
 function gitSubcommand(tokens: string[]): string | undefined {
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
@@ -151,7 +161,7 @@ function gitSubcommand(tokens: string[]): string | undefined {
  * PreToolUse hook denying mutating Bash commands. Attach via
  * `options.hooks = { PreToolUse: readOnlyBashHook("judge") }`.
  */
-export function readOnlyBashHook(label: string): HookCallbackMatcher[] {
+function guardedBashHook(label: string, policy: BashPolicy): HookCallbackMatcher[] {
   return [
     {
       matcher: "Bash",
@@ -159,17 +169,29 @@ export function readOnlyBashHook(label: string): HookCallbackMatcher[] {
         async (input) => {
           if (input.hook_event_name !== "PreToolUse" || input.tool_name !== "Bash") return {};
           const command = String((input.tool_input as { command?: unknown })?.command ?? "");
-          const verdict = vetReadOnlyCommand(command);
+          const verdict = vetBashCommand(command, policy);
           if (verdict.ok) return {};
+          const prefix =
+            policy === "execute"
+              ? `${label} allows Bash only for inspection/check commands`
+              : `${label} is a read-only phase`;
           return {
             hookSpecificOutput: {
               hookEventName: "PreToolUse",
               permissionDecision: "deny",
-              permissionDecisionReason: `${label} is a read-only phase: ${verdict.reason}`,
+              permissionDecisionReason: `${prefix}: ${verdict.reason}`,
             },
           };
         },
       ],
     },
   ];
+}
+
+export function readOnlyBashHook(label: string): HookCallbackMatcher[] {
+  return guardedBashHook(label, "read-only");
+}
+
+export function executeBashHook(label: string): HookCallbackMatcher[] {
+  return guardedBashHook(label, "execute");
 }
