@@ -6,22 +6,44 @@ import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
  * concrete, re-actionable gaps. No free-text "review" field — that's what
  * invites style commentary and scope creep instead of a checkable verdict.
  */
-export const VerdictSchema = z.object({
-  pass: z.boolean(),
-  summary: z.string().describe("One or two sentences, for a human skimming logs."),
-  gaps: z
-    .array(
-      z.object({
-        requirement: z
-          .string()
-          .describe("The plan step or acceptance criterion this gap relates to."),
-        issue: z
-          .string()
-          .describe("What's wrong, specifically enough that execute can act on it without re-reading the whole plan."),
-      })
-    )
-    .describe("Empty when pass is true."),
-});
+export const VerdictSchema = z
+  .object({
+    pass: z.boolean(),
+    summary: z.string().describe("One or two sentences, for a human skimming logs."),
+    gaps: z
+      .array(
+        z.object({
+          kind: z
+            .enum(["implementation_gap", "plan_gap"])
+            .describe(
+              "implementation_gap when the implementation missed the plan/checks; plan_gap when the plan missed the task."
+            ),
+          requirement: z
+            .string()
+            .describe("The plan step, acceptance criterion, or task requirement this gap relates to."),
+          issue: z
+            .string()
+            .describe("What's wrong, specifically enough that execute can act on it without re-reading the whole plan."),
+        })
+      )
+      .describe("Empty when pass is true; non-empty when pass is false."),
+  })
+  .superRefine((verdict, ctx) => {
+    if (verdict.pass && verdict.gaps.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["gaps"],
+        message: "pass=true requires gaps=[]",
+      });
+    }
+    if (!verdict.pass && verdict.gaps.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["gaps"],
+        message: "pass=false requires at least one gap",
+      });
+    }
+  });
 export type Verdict = z.infer<typeof VerdictSchema>;
 
 export interface PipelineConfig {

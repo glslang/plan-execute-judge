@@ -14,7 +14,7 @@ task ─> plan (read-only research) ─> plan text (saved to PLAN.md)
             │
             v
       judge (read-only -- diffs vs baseline, re-runs every acceptance criterion)
-            │  typed verdict { pass, summary, gaps[] }
+            │  typed verdict { pass, summary, gaps[{ kind, requirement, issue }] }
             ├─ pass ─> exit 0
             └─ fail ─> gaps feed the next execute round ─> ... ─> exit 1 after maxRounds
 ```
@@ -40,7 +40,11 @@ Authentication, in order of least effort:
 
 Run it from inside the repo you want it to work on, or point `PEJ_TARGET_CWD`
 at one. The target must be a git repo -- the CLI refuses to start otherwise,
-and records `HEAD` as the baseline the judge diffs against.
+and records `HEAD` as the baseline the judge diffs against. If the target repo
+already has commits, it must start with a clean working tree, including no
+untracked files. Dirty repos fail before planning so existing changes cannot be
+confused with pipeline output. Fresh repos with no `HEAD` are still supported;
+for those, the clean-tree check is skipped.
 
 ```sh
 cd ~/code/my-service
@@ -77,9 +81,10 @@ Done in 1 round(s).
 ```
 
 Exit code `0` means the judge passed; `1` means it didn't pass within
-`maxRounds` (the last verdict's summary and gaps are printed to stderr).
-Changes are left **uncommitted** in the target's working tree for you to
-review -- the pipeline never commits.
+`maxRounds`, the CLI/preflight validation failed, or another phase-stopping
+error occurred. On retry exhaustion, the last verdict's summary and gaps are
+printed to stderr. Changes are left **uncommitted** in the target's working tree
+for you to review -- the pipeline never commits.
 
 | Env var          | Meaning                                   | Default             |
 | ---------------- | ----------------------------------------- | ------------------- |
@@ -128,7 +133,7 @@ free while it works.
 
 ## Design decisions worth knowing before you extend this
 
-**Read-only phases run under `permissionMode: "dontAsk"` plus a Bash-vetting
+**Plan and judge run under `permissionMode: "dontAsk"` plus a Bash-vetting
 hook.** That mode denies any tool call that isn't in `allowedTools` instead of
 prompting for it -- which is what you want in an unattended pipeline, since
 there's no human around to answer a prompt. `Write`/`Edit` are denied outright
@@ -139,6 +144,14 @@ write, `rm`/`mv`/`sed -i` and friends, package-manager installs, `curl`/`wget`,
 and output redirection. This is deliberate defense-in-depth, not a sandbox --
 `node -e` can still write files -- but it stops an agent from drifting into
 editing the tree during review.
+
+**Execute can edit files, but Bash is check-only.** The execute phase runs with
+`permissionMode: "acceptEdits"` and may use `Write`/`Edit`, so planned file
+changes can be made directly. Its Bash hook uses the same guard surface as the
+read-only phases: inspection and test commands such as `git diff`, `npm test`,
+`pytest`, and `cargo test` are allowed; git state mutation, dependency
+mutation, network fetches, shell file mutation commands, `sed -i`, and output
+redirection to files are denied.
 
 **The judge never sees execute's transcript.** Each phase is its own `query()`
 call with no `resume`, so the judge starts cold with only the plan, the task,
@@ -161,10 +174,14 @@ confidently on the wrong thing.
 type: "json_schema", schema: verdictJsonSchema }`, so `verdict.pass` is a
 real boolean the orchestrator branches on, not something parsed out of a
 paragraph. Keep the schema narrow (`pass`, `summary`, `gaps`) -- a free-text
-"review" field invites style commentary and scope creep on every round. One
-sharp edge, found by live smoke test: the SDK silently drops
-`structured_output` if the schema carries the `$schema` meta-key zod emits,
-so `judge.ts` strips it (and a unit test pins that).
+"review" field invites style commentary and scope creep on every round. Each
+gap has `kind`, `requirement`, and `issue`: `implementation_gap` means execute
+should fix work that missed the plan or checks, while `plan_gap` means the plan
+missed part of the original task and execute should treat it as a narrow
+task-level amendment. Passing verdicts must have `gaps: []`; failing verdicts
+must include at least one gap. One sharp edge, found by live smoke test: the
+SDK silently drops `structured_output` if the schema carries the `$schema`
+meta-key zod emits, so `judge.ts` strips it (and a unit test pins that).
 
 **Everything defaults to `claude-opus-4-8`,** with independent overrides
 (`planModel` / `executeModel` / `judgeModel`) if you want a cheaper model
@@ -188,6 +205,9 @@ no test dependencies. The orchestrator's phases are injectable
 round one, fail -> fix-up -> pass (asserting the failed verdict reaches the
 next execute call), giving up at `maxRounds`, and rejecting `maxRounds < 1`.
 `permissions.test.ts` pins the vetting policy with allow/deny cases.
+`preflight.test.ts` covers CLI validation, clean committed repos, dirty tracked
+and untracked files, and no-`HEAD` repos. `prompt.test.ts` pins the serialized
+prompt data escaping used at phase boundaries.
 
 ## Extending
 
@@ -200,18 +220,23 @@ next execute call), giving up at `maxRounds`, and rejecting `maxRounds < 1`.
 - **CI usage:** this is already headless -- wire `npm start -- "<task>"` into
   a pipeline step and check the exit code; `1` means it didn't pass within
   `maxRounds`.
+- **Deferred hardening:** structured plan schemas and run artifact directories
+  are intentionally out of scope for this pass. `PLAN.md` remains the default
+  human-readable plan artifact.
 
 ## Layout
 
 ```
 src/
   types.ts             PipelineConfig, the Verdict zod schema, defaults
-  permissions.ts       Bash-command vetting hook for the read-only phases
+  permissions.ts       Bash-command vetting hooks for read-only and execute phases
+  prompt.ts            serialized prompt data helper
   plan.ts              read-only research -> plan text (also saved to PLAN.md)
   execute.ts           implements the plan (or fixes gaps from a prior verdict)
   judge.ts             reviews the tree against plan + task, returns a typed Verdict
   orchestrator.ts      execute -> judge loop, bounded by maxRounds, injectable phases
-  index.ts             CLI entry: git preflight, baseline capture, env overrides
+  preflight.ts         CLI validation: git preflight, clean-tree check, env parsing
+  index.ts             CLI entry: baseline capture, env overrides
   util.ts              drains a query() stream, throws on non-"success" results
   *.test.ts            node:test unit tests (orchestrator loop, command vetting)
 ```

@@ -48,7 +48,7 @@ export async function runPipeline(
     }
 
     for (const gap of verdict.gaps) {
-      console.log(`  - [${gap.requirement}] ${gap.issue}`);
+      console.log(`  - [${gap.kind}: ${gap.requirement}] ${gap.issue}`);
     }
   }
 
