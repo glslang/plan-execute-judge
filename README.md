@@ -1,5 +1,10 @@
 # plan-execute-judge
 
+[![CI](https://github.com/glslang/plan-execute-judge/actions/workflows/ci.yml/badge.svg)](https://github.com/glslang/plan-execute-judge/actions/workflows/ci.yml)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22.9-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Claude Agent SDK](https://img.shields.io/badge/Claude%20Agent%20SDK-0.3-D97757?logo=anthropic&logoColor=white)](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)
+
 Generic plan -> execute -> judge pipeline on the Claude Agent SDK (TypeScript).
 Three `query()` calls chained by real control flow. The plan text and a typed
 verdict are the only data crossing phase boundaries -- never a conversation
