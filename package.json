@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Generic plan -> execute -> judge orchestration built on the Claude Agent SDK (TypeScript).",
+  "license": "MIT",
   "engines": {
     "node": ">=22.9"
   },
