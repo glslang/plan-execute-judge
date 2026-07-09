@@ -30,6 +30,7 @@ task ─> plan (read-only research) ─> plan text (saved to PLAN.md)
 ```
 npm install
 npm test          # build + unit tests (needs Node >= 22.9)
+npm run build:bun # bundled Bun build to dist-bun/ (requires Bun)
 ```
 
 Authentication, in order of least effort:
