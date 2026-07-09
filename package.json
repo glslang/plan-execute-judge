@@ -10,6 +10,7 @@
   },
   "scripts": {
     "build": "tsc -p .",
+    "build:bun": "bun build ./src/index.ts --target=node --format=esm --packages=external --sourcemap=external --outdir=dist-bun",
     "typecheck": "tsc -p . --noEmit",
     "test": "npm run build && node --test \"dist/*.test.js\"",
     "start": "node --env-file-if-exists=.env dist/index.js"
