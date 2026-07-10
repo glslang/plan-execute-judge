@@ -202,7 +202,9 @@ same command are denied (a separate command re-vets with the clone's symlinks
 now visible). Command/process substitution (`$(...)`, backticks) is denied in
 every guarded phase, since it executes before any token-level vet can see it.
 Env-var prefixes on git/curl/wget are denied in the research phase too --
-`GIT_TRACE=<path>` and similar variables write files wherever they point.
+`GIT_TRACE=<path>` and similar variables write files wherever they point --
+and the `env` command runner is denied in every guarded phase, since options
+like `env -i`/`env -C` smuggle the real command past token-level vetting.
 Output redirection stays denied even into the scratch dir.
 
 **Execute can edit files, but Bash is check-only.** The execute phase runs with
