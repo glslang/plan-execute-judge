@@ -1,4 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import type { ResearchConfig } from "./types.js";
 
 export class CliValidationError extends Error {
   constructor(message: string) {
@@ -25,6 +28,51 @@ export function parseMaxRounds(raw: string | undefined, defaultValue: number): n
   }
 
   return parsed;
+}
+
+/** Splits a comma-separated env value into trimmed, non-empty entries. */
+export function parseList(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+/** URLs and scp-style git remotes (git@host:path) are fetched, not read from disk. */
+function isRemote(source: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(source) || /^git@[^/]+:/.test(source);
+}
+
+/**
+ * Builds the research config from CLI inputs, or undefined when there is
+ * nothing to research from. Local sources and user-research paths must exist
+ * -- a typo'd PDF path should fail here, not after the research agent has
+ * already spent turns. Local paths are resolved against `baseDir` (the
+ * invocation directory, not the target repo) so relative paths mean what
+ * they meant on the command line.
+ */
+export function researchPreflight(
+  sources: string[],
+  userResearch: string[],
+  baseDir: string = process.cwd()
+): ResearchConfig | undefined {
+  if (sources.length === 0 && userResearch.length === 0) return undefined;
+
+  const resolveLocal = (path: string) => resolve(baseDir, path);
+  const missing = [
+    ...sources.filter((s) => !isRemote(s)).map(resolveLocal),
+    ...userResearch.map(resolveLocal),
+  ].filter((path) => !existsSync(path));
+  if (missing.length > 0) {
+    throw new CliValidationError(
+      `Research input file(s) not found:\n${missing.map((path) => `  ${path}`).join("\n")}`
+    );
+  }
+
+  return {
+    sources: sources.map((s) => (isRemote(s) ? s : resolveLocal(s))),
+    userResearch: userResearch.map(resolveLocal),
+  };
 }
 
 /**

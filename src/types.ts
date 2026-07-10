@@ -46,6 +46,26 @@ export const VerdictSchema = z
   });
 export type Verdict = z.infer<typeof VerdictSchema>;
 
+/**
+ * Inputs for the optional deep-research phase. The phase runs iff
+ * `PipelineConfig.research` is set; its brief feeds the plan phase.
+ */
+export interface ResearchConfig {
+  /**
+   * Sources to ingest: web page URLs, git/GitHub repository URLs, and local
+   * or remote document paths (PDF, markdown, ...). Remote documents and repo
+   * clones land in a throwaway scratch directory, never the target tree.
+   */
+  sources: string[];
+
+  /**
+   * Paths to research the user has already done (notes, extracts, findings).
+   * The phase treats these as trusted input to build on and verify against
+   * the sources, rather than re-deriving them from scratch.
+   */
+  userResearch: string[];
+}
+
 export interface PipelineConfig {
   /** The task, in plain language. This drives the plan phase. */
   task: string;
@@ -53,8 +73,16 @@ export interface PipelineConfig {
   /** Working directory the agent operates in (must be a git repo for the judge's diff step). */
   cwd: string;
 
-  /** Model id used for all three phases. Override per-phase below if you want a cheaper judge. */
+  /**
+   * Optional deep-research step before planning. When set, the research
+   * phase ingests the sources and user notes and hands the plan phase a
+   * self-contained research brief. When undefined, planning starts directly.
+   */
+  research?: ResearchConfig;
+
+  /** Model id used for every phase. Override per-phase below if you want a cheaper judge. */
   model: string;
+  researchModel?: string;
   planModel?: string;
   executeModel?: string;
   judgeModel?: string;
@@ -65,6 +93,13 @@ export interface PipelineConfig {
    * in memory, so the file is never read back by the pipeline.
    */
   planFile: string;
+
+  /**
+   * Where the research phase writes its brief, resolved against `cwd`. Like
+   * `planFile`, a human-readable artifact -- the brief crosses the phase
+   * boundary in memory. Only written when the research phase runs.
+   */
+  researchFile: string;
 
   /** Max execute -> judge cycles before giving up. Must be >= 1. */
   maxRounds: number;
@@ -82,7 +117,7 @@ export interface PipelineConfig {
    * that hits its ceiling ends with subtype "error_max_turns", which
    * runPhase turns into a pipeline-stopping error.
    */
-  maxTurns: { plan: number; execute: number; judge: number };
+  maxTurns: { research: number; plan: number; execute: number; judge: number };
 
   /**
    * Which filesystem config the SDK loads (CLAUDE.md, project hooks, skills).
@@ -96,14 +131,23 @@ export interface PipelineConfig {
 
   /** Tools the plan/judge phases may use for read-only research and verification. */
   readOnlyAllowedTools: string[];
+
+  /**
+   * Tools for the research phase: the read-only set plus web access. Its Bash
+   * is vetted by a research-specific hook that additionally allows cloning
+   * and downloading into a scratch directory (see permissions.ts).
+   */
+  researchAllowedTools: string[];
 }
 
 export const DEFAULT_CONFIG: Omit<PipelineConfig, "task" | "cwd"> = {
   model: "claude-opus-4-8",
   planFile: "PLAN.md",
+  researchFile: "RESEARCH.md",
   maxRounds: 3,
-  maxTurns: { plan: 64, execute: 256, judge: 64 },
+  maxTurns: { research: 128, plan: 64, execute: 256, judge: 64 },
   settingSources: [],
   executeAllowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
   readOnlyAllowedTools: ["Read", "Grep", "Glob", "Bash"],
+  researchAllowedTools: ["Read", "Grep", "Glob", "Bash", "WebFetch", "WebSearch"],
 };

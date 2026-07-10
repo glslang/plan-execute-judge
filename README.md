@@ -6,13 +6,18 @@
 [![Claude Agent SDK](https://img.shields.io/badge/Claude%20Agent%20SDK-0.3-D97757?logo=anthropic&logoColor=white)](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-Generic plan -> execute -> judge pipeline on the Claude Agent SDK (TypeScript).
-Three `query()` calls chained by real control flow. The plan text and a typed
-verdict are the only data crossing phase boundaries -- never a conversation
-transcript. `PLAN.md` is written as a human-readable artifact of the run.
+Generic plan -> execute -> judge pipeline on the Claude Agent SDK (TypeScript),
+with an optional deep-research phase in front. Chained `query()` calls with
+real control flow. The research brief, the plan text, and a typed verdict are
+the only data crossing phase boundaries -- never a conversation transcript.
+`RESEARCH.md` and `PLAN.md` are written as human-readable artifacts of the run.
 
 ```
-task ─> plan (read-only research) ─> plan text (saved to PLAN.md)
+task ─┬─> [research, optional] ingests PDFs, web pages, git repos + your own
+      │       notes ─> research brief (saved to RESEARCH.md)
+      │                     │
+      v                     v
+      plan (read-only research) ─> plan text (saved to PLAN.md)
                                           │
             ┌─────────────────────────────┘
             v
@@ -93,14 +98,39 @@ error occurred. On retry exhaustion, the last verdict's summary and gaps are
 printed to stderr. Changes are left **uncommitted** in the target's working tree
 for you to review -- the pipeline never commits.
 
-| Env var          | Meaning                                   | Default             |
-| ---------------- | ----------------------------------------- | ------------------- |
-| `PEJ_TARGET_CWD` | Repo the pipeline works on                | current directory   |
-| `PEJ_MODEL`      | Model for all three phases                | `claude-opus-4-8`   |
-| `PEJ_MAX_ROUNDS` | Execute -> judge cycles before giving up  | `3`                 |
+| Env var                | Meaning                                                          | Default           |
+| ---------------------- | ---------------------------------------------------------------- | ----------------- |
+| `PEJ_TARGET_CWD`       | Repo the pipeline works on                                       | current directory |
+| `PEJ_MODEL`            | Model for every phase                                            | `claude-opus-4-8` |
+| `PEJ_MAX_ROUNDS`       | Execute -> judge cycles before giving up                         | `3`               |
+| `PEJ_RESEARCH_SOURCES` | Comma-separated research sources (URLs, git repos, PDFs/docs)    | unset             |
+| `PEJ_RESEARCH_NOTES`   | Comma-separated files of research you've already done            | unset             |
 
-Per-phase overrides (`planModel` / `executeModel` / `judgeModel`, `maxTurns`,
-allowed tools) live in `src/types.ts` if you're forking the config.
+Per-phase overrides (`researchModel` / `planModel` / `executeModel` /
+`judgeModel`, `maxTurns`, allowed tools) live in `src/types.ts` if you're
+forking the config.
+
+### The optional research phase
+
+Setting `PEJ_RESEARCH_SOURCES` and/or `PEJ_RESEARCH_NOTES` (or `research` in
+`PipelineConfig`) inserts a deep-research phase before planning:
+
+```sh
+PEJ_RESEARCH_SOURCES="https://docs.stripe.com/webhooks,https://github.com/stripe/stripe-node,~/refs/webhook-spec.pdf" \
+PEJ_RESEARCH_NOTES="~/notes/stripe-findings.md" \
+npm start -- "verify Stripe webhook signatures on /hooks/stripe"
+```
+
+It ingests each source by type -- local PDFs and documents via the `Read`
+tool (which handles PDFs natively), web pages via `WebFetch`/`WebSearch`,
+git/GitHub repositories by shallow-cloning into a throwaway scratch
+directory, and remote PDFs by downloading into that same scratch dir. Your
+own notes in `PEJ_RESEARCH_NOTES` are treated as trusted prior research: the
+phase builds on and verifies them against the sources instead of re-deriving
+them, and flags contradictions. The output is a self-contained research brief
+(saved to `RESEARCH.md`) that the plan phase grounds its plan in. Local
+source and note paths are validated at preflight, so a typo'd path fails
+before any tokens are spent.
 
 ### From Claude Code
 
@@ -152,6 +182,16 @@ and output redirection. This is deliberate defense-in-depth, not a sandbox --
 `node -e` can still write files -- but it stops an agent from drifting into
 editing the tree during review.
 
+**Research can fetch, but only into a scratch directory.** The research phase
+needs the network (WebFetch/WebSearch are in its `allowedTools`) and needs to
+materialize repos and remote documents somewhere. It gets a third Bash policy:
+everything the read-only policy allows, plus `git clone`, `curl -o`/`wget -O`,
+and `mkdir` -- vetted so every destination path is inside a throwaway
+`mkdtemp` scratch dir that is deleted when the phase ends. Forms that would
+write into the shell's cwd (`git clone` without a destination, `curl -O`,
+`wget -P`, bare `wget`) are denied, so the target tree stays untouched until
+execute. Output redirection stays denied even into the scratch dir.
+
 **Execute can edit files, but Bash is check-only.** The execute phase runs with
 `permissionMode: "acceptEdits"` and may use `Write`/`Edit`, so planned file
 changes can be made directly. Its Bash hook uses the same guard surface as the
@@ -191,11 +231,11 @@ SDK silently drops `structured_output` if the schema carries the `$schema`
 meta-key zod emits, so `judge.ts` strips it (and a unit test pins that).
 
 **Everything defaults to `claude-opus-4-8`,** with independent overrides
-(`planModel` / `executeModel` / `judgeModel`) if you want a cheaper model
-judging or planning than the one doing the implementation work.
+(`researchModel` / `planModel` / `executeModel` / `judgeModel`) if you want a
+cheaper model judging or planning than the one doing the implementation work.
 
-**Every phase has a turn ceiling** (`maxTurns` in `types.ts`: plan 64,
-execute 256, judge 64). A phase that hits it ends with `error_max_turns`,
+**Every phase has a turn ceiling** (`maxTurns` in `types.ts`: research 128,
+plan 64, execute 256, judge 64). A phase that hits it ends with `error_max_turns`,
 which `runPhase` turns into a pipeline-stopping error instead of a silent
 partial result.
 
@@ -211,9 +251,10 @@ no test dependencies. The orchestrator's phases are injectable
 (`runPipeline(cfg, phases)`), so the retry loop is tested with fakes: pass on
 round one, fail -> fix-up -> pass (asserting the failed verdict reaches the
 next execute call), giving up at `maxRounds`, and rejecting `maxRounds < 1`.
-`permissions.test.ts` pins the vetting policy with allow/deny cases.
+`permissions.test.ts` pins the vetting policies with allow/deny cases,
+including the research policy's scratch-dir-scoped clone/download exceptions.
 `preflight.test.ts` covers CLI validation, clean committed repos, dirty tracked
-and untracked files, and no-`HEAD` repos. `prompt.test.ts` pins the serialized
+and untracked files, no-`HEAD` repos, and research source/note validation. `prompt.test.ts` pins the serialized
 prompt data escaping used at phase boundaries.
 
 ## Extending
@@ -235,13 +276,14 @@ prompt data escaping used at phase boundaries.
 
 ```
 src/
-  types.ts             PipelineConfig, the Verdict zod schema, defaults
-  permissions.ts       Bash-command vetting hooks for read-only and execute phases
+  types.ts             PipelineConfig, ResearchConfig, the Verdict zod schema, defaults
+  permissions.ts       Bash-command vetting hooks: read-only, execute, and research policies
   prompt.ts            serialized prompt data helper
+  research.ts          optional deep research over sources + user notes -> brief (RESEARCH.md)
   plan.ts              read-only research -> plan text (also saved to PLAN.md)
   execute.ts           implements the plan (or fixes gaps from a prior verdict)
   judge.ts             reviews the tree against plan + task, returns a typed Verdict
-  orchestrator.ts      execute -> judge loop, bounded by maxRounds, injectable phases
+  orchestrator.ts      optional research, then execute -> judge loop bounded by maxRounds
   preflight.ts         CLI validation: git preflight, clean-tree check, env parsing
   index.ts             CLI entry: baseline capture, env overrides
   util.ts              drains a query() stream, throws on non-"success" results

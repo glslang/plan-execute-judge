@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { vetExecuteCommand, vetReadOnlyCommand } from "./permissions.js";
+import { vetExecuteCommand, vetReadOnlyCommand, vetResearchCommand } from "./permissions.js";
 
 function allowed(command: string) {
   const v = vetReadOnlyCommand(command);
@@ -10,6 +10,18 @@ function allowed(command: string) {
 function denied(command: string) {
   const v = vetReadOnlyCommand(command);
   assert.equal(v.ok, false, `expected denied: ${command}`);
+}
+
+const SCRATCH = "/tmp/pej-research-abc123";
+
+function allowedResearch(command: string) {
+  const v = vetResearchCommand(command, SCRATCH);
+  assert.equal(v.ok, true, `expected research allowed: ${command}${v.ok ? "" : ` (denied: ${v.reason})`}`);
+}
+
+function deniedResearch(command: string) {
+  const v = vetResearchCommand(command, SCRATCH);
+  assert.equal(v.ok, false, `expected research denied: ${command}`);
 }
 
 function allowedExecute(command: string) {
@@ -86,6 +98,47 @@ test("denies dependency mutation and network fetches", () => {
   denied("curl https://example.com");
   denied("wget https://example.com/x.sh");
   allowed("npm ls zod");
+});
+
+test("research policy allows clones and downloads only into the scratch dir", () => {
+  allowedResearch(`git clone --depth=1 https://github.com/a/b ${SCRATCH}/b`);
+  allowedResearch(`git clone https://github.com/a/b ${SCRATCH}/repos/b && grep -rn TODO ${SCRATCH}/repos/b`);
+  deniedResearch("git clone https://github.com/a/b"); // no dest -> clones into the target tree
+  deniedResearch("git clone https://github.com/a/b b"); // relative dest is outside the scratch dir
+  deniedResearch("git clone https://github.com/a/b /home/user/b");
+  deniedResearch(`git clone https://github.com/a/b ${SCRATCH}/../escape`); // normalizes outside
+
+  allowedResearch(`curl -L -o ${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
+  allowedResearch(`curl -L --output=${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
+  deniedResearch("curl https://example.com/spec.pdf"); // no output file
+  deniedResearch("curl -o /etc/cron.d/x https://example.com/x");
+  deniedResearch("curl -O https://example.com/spec.pdf"); // writes into the shell cwd
+  deniedResearch(`curl --output-dir ${SCRATCH} -O https://example.com/spec.pdf`);
+  allowedResearch(`wget -O ${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
+  deniedResearch("wget https://example.com/spec.pdf"); // writes into the shell cwd
+  deniedResearch(`wget -P ${SCRATCH} https://example.com/spec.pdf`);
+
+  allowedResearch(`mkdir -p ${SCRATCH}/repos`);
+  deniedResearch("mkdir -p out");
+});
+
+test("research policy keeps every other mutation rule", () => {
+  deniedResearch("rm -rf dist");
+  deniedResearch("git add .");
+  deniedResearch("git commit -m done");
+  deniedResearch("npm install lodash");
+  deniedResearch("sed -i s/a/b/ file.ts");
+  deniedResearch(`echo hi > ${SCRATCH}/notes.txt`); // redirection stays denied, even into scratch
+  deniedResearch(`git clone https://x ${SCRATCH}/b && rm -rf src`); // chained segments still vetted
+  allowedResearch("git log --oneline -20");
+  allowedResearch("npm test");
+});
+
+test("read-only and execute policies still deny fetches even with scratch-dir paths", () => {
+  denied(`git clone https://github.com/a/b ${SCRATCH}/b`);
+  denied(`curl -o ${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
+  deniedExecute(`git clone https://github.com/a/b ${SCRATCH}/b`);
+  deniedExecute(`curl -o ${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
 });
 
 test("execute Bash policy allows checks but denies shell mutation", () => {

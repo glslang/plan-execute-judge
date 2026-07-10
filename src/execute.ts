@@ -15,7 +15,7 @@ export async function runExecute(cfg: PipelineConfig, plan: string, priorVerdict
   const inputData = serializePromptData({
     plan,
     priorGaps: priorVerdict?.gaps ?? [],
-    planFile: cfg.planFile,
+    pipelineFiles: [cfg.planFile, cfg.researchFile],
   });
 
   const prompt = `
@@ -34,7 +34,7 @@ Rules:
 - Leave every change uncommitted in the working tree: do not run git add,
   git commit, git stash, git checkout, or create branches. A separate review
   phase inspects the working tree.
-- Do not create or modify the file named by "planFile" -- it belongs to the pipeline.
+- Do not create or modify the files named in "pipelineFiles" -- they belong to the pipeline.
 - Stay within the plan's scope. If the plan turns out to be wrong about the
   code, satisfy its intent as closely as possible; do not invent new scope.
 `.trim();

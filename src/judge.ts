@@ -23,7 +23,7 @@ export async function runJudge(cfg: PipelineConfig, plan: string): Promise<Verdi
   const inputData = serializePromptData({
     task: cfg.task,
     plan,
-    planFile: cfg.planFile,
+    pipelineFiles: [cfg.planFile, cfg.researchFile],
     baselineRef: cfg.baselineRef ?? null,
     reviewCommands: {
       status: "git status --porcelain --untracked-files=all",
@@ -48,8 +48,9 @@ ${inputData}
 3. For every acceptance criterion in the plan, verify it yourself by running
    the actual command it names -- do not take a comment or commit message's
    word for it.
-4. Flag anything that falls outside the plan's stated scope. Ignore
-   the file named by "planFile"; it is the pipeline's own artifact, not part of the change.
+4. Flag anything that falls outside the plan's stated scope. Ignore the
+   files named in "pipelineFiles"; they are the pipeline's own artifacts,
+   not part of the change.
 5. If the implementation satisfies the plan but the plan itself missed part
    of the task, fail with a "plan_gap" describing what the task still needs --
    the plan is a means, the task is the contract.
