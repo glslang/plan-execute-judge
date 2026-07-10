@@ -1,5 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { PipelineConfig, Verdict } from "./types.js";
+import { pipelineArtifactFiles, type PipelineConfig, type Verdict } from "./types.js";
 import { runPhase } from "./util.js";
 import { executeBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
@@ -15,7 +15,7 @@ export async function runExecute(cfg: PipelineConfig, plan: string, priorVerdict
   const inputData = serializePromptData({
     plan,
     priorGaps: priorVerdict?.gaps ?? [],
-    pipelineFiles: [cfg.planFile, cfg.researchFile],
+    pipelineFiles: pipelineArtifactFiles(cfg),
   });
 
   const prompt = `

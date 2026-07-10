@@ -107,6 +107,8 @@ test("research policy allows clones and downloads only into the scratch dir", ()
   deniedResearch("git clone https://github.com/a/b b"); // relative dest is outside the scratch dir
   deniedResearch("git clone https://github.com/a/b /home/user/b");
   deniedResearch(`git clone https://github.com/a/b ${SCRATCH}/../escape`); // normalizes outside
+  deniedResearch(`git clone --separate-git-dir /home/user/leak.git https://github.com/a/b ${SCRATCH}/b`);
+  deniedResearch(`git clone --separate-git-dir=${SCRATCH}/g https://github.com/a/b ${SCRATCH}/b`); // denied outright
 
   allowedResearch(`curl -L -o ${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
   allowedResearch(`curl -L --output=${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
@@ -117,6 +119,16 @@ test("research policy allows clones and downloads only into the scratch dir", ()
   allowedResearch(`wget -O ${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
   deniedResearch("wget https://example.com/spec.pdf"); // writes into the shell cwd
   deniedResearch(`wget -P ${SCRATCH} https://example.com/spec.pdf`);
+
+  // Side-output flags must point into the scratch dir too, not just -o/-O.
+  allowedResearch(`curl -o ${SCRATCH}/spec.pdf -D ${SCRATCH}/headers.txt https://example.com/spec.pdf`);
+  deniedResearch(`curl -o ${SCRATCH}/spec.pdf -D /home/user/headers.txt https://example.com/spec.pdf`);
+  deniedResearch(`curl -o ${SCRATCH}/spec.pdf --trace /home/user/trace.log https://example.com/spec.pdf`);
+  deniedResearch(`curl -o ${SCRATCH}/spec.pdf -c /home/user/cookies https://example.com/spec.pdf`);
+  deniedResearch(`curl -o/home/user/evil -o ${SCRATCH}/ok https://example.com/x`); // attached short form
+  allowedResearch(`wget -O ${SCRATCH}/spec.pdf -o ${SCRATCH}/wget.log https://example.com/spec.pdf`);
+  deniedResearch(`wget -O ${SCRATCH}/spec.pdf -o /home/user/wget.log https://example.com/spec.pdf`);
+  deniedResearch(`wget -o ${SCRATCH}/wget.log https://example.com/spec.pdf`); // log in scratch but download to cwd
 
   allowedResearch(`mkdir -p ${SCRATCH}/repos`);
   deniedResearch("mkdir -p out");
