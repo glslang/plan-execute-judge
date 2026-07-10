@@ -140,6 +140,18 @@ export interface PipelineConfig {
   researchAllowedTools: string[];
 }
 
+/**
+ * Files the pipeline itself writes into the target tree -- execute must not
+ * touch them and the judge ignores them. The research artifact is only
+ * reserved when the research phase actually runs; otherwise a task that
+ * legitimately touches a file with that name must stay in scope.
+ */
+export function pipelineArtifactFiles(
+  cfg: Pick<PipelineConfig, "research" | "planFile" | "researchFile">
+): string[] {
+  return cfg.research ? [cfg.planFile, cfg.researchFile] : [cfg.planFile];
+}
+
 export const DEFAULT_CONFIG: Omit<PipelineConfig, "task" | "cwd"> = {
   model: "claude-opus-4-8",
   planFile: "PLAN.md",

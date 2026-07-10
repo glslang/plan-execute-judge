@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runPipeline, type PipelinePhases } from "./orchestrator.js";
-import { DEFAULT_CONFIG, VerdictSchema, type PipelineConfig, type Verdict } from "./types.js";
+import { DEFAULT_CONFIG, pipelineArtifactFiles, VerdictSchema, type PipelineConfig, type Verdict } from "./types.js";
 import { verdictJsonSchema } from "./judge.js";
 
 function makeCfg(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
@@ -81,6 +81,15 @@ test("runs research before plan when configured and feeds the brief to plan", as
   assert.deepEqual(calls.planResearch, ["THE BRIEF"]);
   assert.equal(result.research, "THE BRIEF");
   assert.equal(result.passed, true);
+});
+
+test("pipelineArtifactFiles reserves the research artifact only when research is configured", () => {
+  const base = { planFile: "PLAN.md", researchFile: "RESEARCH.md" };
+  assert.deepEqual(pipelineArtifactFiles({ ...base, research: undefined }), ["PLAN.md"]);
+  assert.deepEqual(pipelineArtifactFiles({ ...base, research: { sources: [], userResearch: ["notes.md"] } }), [
+    "PLAN.md",
+    "RESEARCH.md",
+  ]);
 });
 
 test("feeds the failed verdict into the next execute round", async () => {

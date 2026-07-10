@@ -101,11 +101,68 @@ function isUnder(rawPath: string, dir: string): boolean {
  * undefined when `cmd` isn't one of the excepted commands, so the caller
  * falls through to the normal rules.
  */
+/**
+ * Extracts the value of a path-taking flag from the token at `j`, matching
+ * the space (`-o path`), equals (`--output=path`), and attached short
+ * (`-opath`) forms. Returns the value and the index of the last consumed
+ * token, or undefined when the token isn't this flag.
+ */
+function flagValue(flag: string, args: string[], j: number): { value: string; end: number } | undefined {
+  const t = args[j];
+  if (t === flag) return { value: args[j + 1] ?? "", end: j + 1 };
+  if (t.startsWith(`${flag}=`)) return { value: t.slice(flag.length + 1), end: j };
+  // Attached form exists only for short options (-opath).
+  if (flag.length === 2 && !flag.startsWith("--") && t.startsWith(flag) && t.length > 2) {
+    return { value: t.slice(2), end: j };
+  }
+  return undefined;
+}
+
+/** Flags whose value is a file/dir the command writes. sawOutput marks the main document output. */
+interface WriteFlagSpec {
+  flag: string;
+  isOutput?: boolean;
+}
+
+const CURL_WRITE_FLAGS: WriteFlagSpec[] = [
+  { flag: "-o", isOutput: true },
+  { flag: "--output", isOutput: true },
+  // Side outputs: validated against the scratch dir but a download still
+  // needs an explicit -o, since these don't capture the document body.
+  { flag: "-D" },
+  { flag: "--dump-header" },
+  { flag: "--trace" },
+  { flag: "--trace-ascii" },
+  { flag: "-c" },
+  { flag: "--cookie-jar" },
+  { flag: "--etag-save" },
+];
+// curl flags that write into the shell's cwd with no path to vet.
+const CURL_CWD_WRITE_FLAGS = ["-O", "--remote-name", "--remote-name-all", "--output-dir", "-J", "--remote-header-name"];
+
+const WGET_WRITE_FLAGS: WriteFlagSpec[] = [
+  { flag: "-O", isOutput: true },
+  { flag: "--output-document", isOutput: true },
+  { flag: "-o" }, // log file, not the download
+  { flag: "--output-file" },
+  { flag: "-a" },
+  { flag: "--append-output" },
+  { flag: "--save-cookies" },
+  { flag: "--warc-file" },
+];
+const WGET_CWD_WRITE_FLAGS = ["-P", "--directory-prefix"];
+
 function vetResearchException(cmd: string, args: string[], scratchDir: string): VetResult | undefined {
   if (cmd === "git" && gitSubcommand(args) === "clone") {
+    const cloneArgs = args.slice(args.indexOf("clone") + 1);
+    // --separate-git-dir relocates the .git directory to an arbitrary path,
+    // escaping the scratch-dir guarantee. Nothing research does needs it.
+    if (cloneArgs.some((t) => t === "--separate-git-dir" || t.startsWith("--separate-git-dir="))) {
+      return { ok: false, reason: "`git clone --separate-git-dir` writes outside the research scratch dir" };
+    }
     // Require the explicit `git clone <url> <dest>` form; without a dest,
     // git writes into the shell's cwd -- the tree under review.
-    const positionals = args.slice(args.indexOf("clone") + 1).filter((t) => !t.startsWith("-"));
+    const positionals = cloneArgs.filter((t) => !t.startsWith("-"));
     if (positionals.length >= 2 && isUnder(positionals[positionals.length - 1], scratchDir)) {
       return { ok: true };
     }
@@ -114,23 +171,26 @@ function vetResearchException(cmd: string, args: string[], scratchDir: string): 
 
   if (cmd === "curl" || cmd === "wget") {
     // curl's -O and wget's -P/default drop files into the shell's cwd, so
-    // only the explicit output-file forms are allowed, and every output
-    // path must be inside the scratch dir.
-    const outFlags = cmd === "curl" ? ["-o", "--output"] : ["-O", "--output-document"];
-    const cwdWriteFlags = cmd === "curl" ? ["-O", "--remote-name", "--remote-name-all", "--output-dir"] : ["-P", "--directory-prefix"];
+    // only explicit output-file forms are allowed -- and EVERY flag that
+    // writes a file (headers, traces, cookies, logs, ...) must point inside
+    // the scratch dir, not just the document output.
+    const writeFlags = cmd === "curl" ? CURL_WRITE_FLAGS : WGET_WRITE_FLAGS;
+    const cwdWriteFlags = cmd === "curl" ? CURL_CWD_WRITE_FLAGS : WGET_CWD_WRITE_FLAGS;
     let sawOutput = false;
     for (let j = 0; j < args.length; j++) {
       const t = args[j];
       if (cwdWriteFlags.some((f) => t === f || t.startsWith(`${f}=`))) {
         return { ok: false, reason: `\`${cmd} ${t}\` writes outside the research scratch dir` };
       }
-      const eqFlag = outFlags.find((f) => t.startsWith(`${f}=`));
-      const value = outFlags.includes(t) ? args[++j] : eqFlag ? t.slice(eqFlag.length + 1) : undefined;
-      if (value === undefined) continue;
-      if (!isUnder(value, scratchDir)) {
-        return { ok: false, reason: `\`${cmd}\` may only download into the research scratch dir` };
+      const match = writeFlags
+        .map((spec) => ({ spec, hit: flagValue(spec.flag, args, j) }))
+        .find((m) => m.hit !== undefined);
+      if (!match?.hit) continue;
+      if (!isUnder(match.hit.value, scratchDir)) {
+        return { ok: false, reason: `\`${cmd} ${match.spec.flag}\` may only write into the research scratch dir` };
       }
-      sawOutput = true;
+      if (match.spec.isOutput) sawOutput = true;
+      j = match.hit.end;
     }
     return sawOutput
       ? { ok: true }

@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { VerdictSchema, type Verdict, type PipelineConfig } from "./types.js";
+import { pipelineArtifactFiles, VerdictSchema, type Verdict, type PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
@@ -23,7 +23,7 @@ export async function runJudge(cfg: PipelineConfig, plan: string): Promise<Verdi
   const inputData = serializePromptData({
     task: cfg.task,
     plan,
-    pipelineFiles: [cfg.planFile, cfg.researchFile],
+    pipelineFiles: pipelineArtifactFiles(cfg),
     baselineRef: cfg.baselineRef ?? null,
     reviewCommands: {
       status: "git status --porcelain --untracked-files=all",
