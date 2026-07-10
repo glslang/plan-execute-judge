@@ -158,6 +158,15 @@ test("research policy allows clones and downloads only into the scratch dir", ()
   deniedResearch("mkdir -p out");
 });
 
+test("denies the env command runner in every policy", () => {
+  // env's options (-i, -u, -C, -S) relaunch the real command in ways
+  // token-level vetting can't see; plain FOO=bar prefixes still work.
+  denied("env npm test");
+  denied("env -i git status");
+  deniedExecute("env -C /tmp npm test");
+  allowed("FOO=bar npm test");
+});
+
 test("denies command and process substitution in every policy", () => {
   denied("cat $(touch /tmp/x)");
   denied("git log `id`");
@@ -171,9 +180,11 @@ test("research policy denies env-var prefixes on fetch-capable commands", () => 
   // the vetted command's own output handling is even reached.
   deniedResearch(`GIT_TRACE=/home/user/leak git clone https://github.com/a/b ${SCRATCH}/b`);
   deniedResearch(`env git clone https://github.com/a/b ${SCRATCH}/b`);
+  deniedResearch(`env -i GIT_TRACE=/home/user/leak git status`); // env options hide the real command
+  deniedResearch(`/usr/bin/env GIT_TRACE=/home/user/leak git clone https://github.com/a/b ${SCRATCH}/b`);
   deniedResearch("GIT_TRACE=/home/user/leak git status"); // read subcommands too
   deniedResearch(`SSLKEYLOGFILE=/home/user/keys.log curl -o ${SCRATCH}/f https://example.com/x`);
-  allowedResearch("NODE_ENV=test npm test"); // non-fetch commands keep env prefixes
+  allowedResearch("NODE_ENV=test npm test"); // non-fetch commands keep env-var prefixes
 });
 
 test("research policy denies scratch writes chained after a clone in the same command", () => {

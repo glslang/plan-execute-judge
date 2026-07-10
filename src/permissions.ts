@@ -309,12 +309,19 @@ export function vetBashCommand(command: string, policy: BashPolicy, scratchDir?:
     const tokens = rawSegment.trim().split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;
 
-    // Skip env-var prefixes (FOO=bar cmd) and `env`.
+    // Skip env-var assignment prefixes (FOO=bar cmd).
     let i = 0;
-    while (i < tokens.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]) || tokens[i] === "env")) i++;
+    while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) i++;
     if (i >= tokens.length) continue;
     const hasEnvPrefix = i > 0;
     const cmd = tokens[i].replace(/^.*\//, ""); // basename, so /usr/bin/rm is still rm
+
+    // `env` is a command runner whose options (-i, -u NAME, -C dir, -S ...)
+    // relaunch the real command in ways this token-level vet can't see
+    // (e.g. `env -i GIT_TRACE=/leak git ...` hides both the var and git).
+    if (cmd === "env") {
+      return { ok: false, reason: "`env` can smuggle options and variables past command vetting; use plain FOO=bar prefixes instead" };
+    }
 
     if (policy === "research" && scratchDir !== undefined) {
       // Env vars can redirect these commands' output to arbitrary files
