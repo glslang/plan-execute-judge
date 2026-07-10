@@ -313,9 +313,19 @@ export function vetBashCommand(command: string, policy: BashPolicy, scratchDir?:
     let i = 0;
     while (i < tokens.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]) || tokens[i] === "env")) i++;
     if (i >= tokens.length) continue;
+    const hasEnvPrefix = i > 0;
     const cmd = tokens[i].replace(/^.*\//, ""); // basename, so /usr/bin/rm is still rm
 
     if (policy === "research" && scratchDir !== undefined) {
+      // Env vars can redirect these commands' output to arbitrary files
+      // (GIT_TRACE=<path> writes a trace before the clone even starts), so
+      // no env prefix may accompany a fetch-capable command in research.
+      if (hasEnvPrefix && (cmd === "git" || cmd === "curl" || cmd === "wget")) {
+        return {
+          ok: false,
+          reason: `env-var prefixes can redirect \`${cmd}\` output to arbitrary files (e.g. GIT_TRACE); run it without a prefix`,
+        };
+      }
       const exception = vetResearchException(cmd, tokens.slice(i + 1), scratchDir);
       if (exception !== undefined) {
         // Every segment is vetted before the FIRST one runs, so a clone in

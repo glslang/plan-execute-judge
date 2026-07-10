@@ -166,6 +166,16 @@ test("denies command and process substitution in every policy", () => {
   deniedResearch(`curl -o ${SCRATCH}/f 'https://host/$(touch /tmp/pwned)'`);
 });
 
+test("research policy denies env-var prefixes on fetch-capable commands", () => {
+  // GIT_TRACE and friends write files wherever the env var points, before
+  // the vetted command's own output handling is even reached.
+  deniedResearch(`GIT_TRACE=/home/user/leak git clone https://github.com/a/b ${SCRATCH}/b`);
+  deniedResearch(`env git clone https://github.com/a/b ${SCRATCH}/b`);
+  deniedResearch("GIT_TRACE=/home/user/leak git status"); // read subcommands too
+  deniedResearch(`SSLKEYLOGFILE=/home/user/keys.log curl -o ${SCRATCH}/f https://example.com/x`);
+  allowedResearch("NODE_ENV=test npm test"); // non-fetch commands keep env prefixes
+});
+
 test("research policy denies scratch writes chained after a clone in the same command", () => {
   // All segments are vetted before the first runs, so a clone could plant a
   // symlink that a same-command download would then write through.
