@@ -204,6 +204,7 @@ test("research policy denies env-var prefixes on fetch-capable commands", () => 
   deniedResearch(`env -i GIT_TRACE=/home/user/leak git status`); // env options hide the real command
   deniedResearch(`/usr/bin/env GIT_TRACE=/home/user/leak git clone https://github.com/a/b ${SCRATCH}/b`);
   deniedResearch("GIT_TRACE=/home/user/leak git status"); // read subcommands too
+  deniedResearch("GIT_TRACE+=/home/user/leak git status"); // Bash append-assignment form
   deniedResearch(`SSLKEYLOGFILE=/home/user/keys.log curl -o ${SCRATCH}/f https://example.com/x`);
   allowedResearch("NODE_ENV=test npm test"); // non-fetch commands keep env-var prefixes
 });

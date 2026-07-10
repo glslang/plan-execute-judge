@@ -353,9 +353,9 @@ export function vetBashCommand(command: string, policy: BashPolicy, scratchDir?:
     const tokens = rawSegment.trim().split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;
 
-    // Skip env-var assignment prefixes (FOO=bar cmd).
+    // Skip env-var assignment prefixes (FOO=bar cmd, FOO+=bar cmd).
     let i = 0;
-    while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) i++;
+    while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(tokens[i])) i++;
     if (i >= tokens.length) continue;
     const hasEnvPrefix = i > 0;
     const cmd = tokens[i].replace(/^.*\//, ""); // basename, so /usr/bin/rm is still rm
