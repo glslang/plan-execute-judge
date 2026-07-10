@@ -304,6 +304,7 @@ export function vetBashCommand(command: string, policy: BashPolicy, scratchDir?:
     return { ok: false, reason: "output redirection writes files; pipe to head/tail instead" };
   }
 
+  let cloneInEarlierSegment = false;
   for (const rawSegment of command.split(/&&|\|\||[;|\n]/)) {
     const tokens = rawSegment.trim().split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;
@@ -317,7 +318,18 @@ export function vetBashCommand(command: string, policy: BashPolicy, scratchDir?:
     if (policy === "research" && scratchDir !== undefined) {
       const exception = vetResearchException(cmd, tokens.slice(i + 1), scratchDir);
       if (exception !== undefined) {
+        // Every segment is vetted before the FIRST one runs, so a clone in
+        // an earlier segment can plant a symlink that isUnder cannot see
+        // yet. Writes after a clone must come as a separate command, where
+        // the symlink exists at vet time and canonicalization catches it.
+        if (cloneInEarlierSegment) {
+          return {
+            ok: false,
+            reason: "run writes after `git clone` as a separate command; vetting happens before the clone executes",
+          };
+        }
         if (!exception.ok) return exception;
+        if (cmd === "git") cloneInEarlierSegment = true;
         continue; // segment fully vetted by the research exception
       }
     }

@@ -166,6 +166,17 @@ test("denies command and process substitution in every policy", () => {
   deniedResearch(`curl -o ${SCRATCH}/f 'https://host/$(touch /tmp/pwned)'`);
 });
 
+test("research policy denies scratch writes chained after a clone in the same command", () => {
+  // All segments are vetted before the first runs, so a clone could plant a
+  // symlink that a same-command download would then write through.
+  deniedResearch(`git clone https://github.com/a/b ${SCRATCH}/repo && curl -o ${SCRATCH}/repo/docs/spec.pdf https://example.com/spec.pdf`);
+  deniedResearch(`git clone https://github.com/a/b ${SCRATCH}/a; git clone https://github.com/c/d ${SCRATCH}/a/sub`);
+  deniedResearch(`git clone https://github.com/a/b ${SCRATCH}/repo && mkdir -p ${SCRATCH}/repo/x`);
+  // Read-only segments after a clone are fine, as are writes before it.
+  allowedResearch(`git clone --depth=1 https://github.com/a/b ${SCRATCH}/b && grep -rn TODO ${SCRATCH}/b`);
+  allowedResearch(`mkdir -p ${SCRATCH}/dl && curl -o ${SCRATCH}/dl/spec.pdf https://example.com/spec.pdf`);
+});
+
 test("research policy denies writes through symlinks that escape the scratch dir", () => {
   symlinkSync(OUTSIDE, join(SCRATCH, "leak"));
   deniedResearch(`curl -o ${SCRATCH}/leak/spec.pdf https://example.com/spec.pdf`);
