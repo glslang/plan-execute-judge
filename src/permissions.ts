@@ -1,4 +1,5 @@
-import { normalize, sep } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, normalize, sep } from "node:path";
 import type { HookCallbackMatcher } from "@anthropic-ai/claude-agent-sdk";
 
 /**
@@ -88,11 +89,32 @@ const GIT_OPTS_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--
 export type VetResult = { ok: true } | { ok: false; reason: string };
 export type BashPolicy = "read-only" | "execute" | "research";
 
-/** True when `rawPath` normalizes to a path strictly inside `dir`. */
+/**
+ * True when `rawPath` resolves to a location strictly inside `dir`. The
+ * lexical prefix check alone isn't enough: a cloned repo can plant a
+ * symlink inside the scratch dir that points outside it, so the deepest
+ * existing ancestor of the target is canonicalized and re-checked against
+ * the canonical scratch dir.
+ */
 function isUnder(rawPath: string, dir: string): boolean {
   const p = normalize(rawPath.replace(/^['"]|['"]$/g, ""));
-  const base = normalize(dir).replace(new RegExp(`\\${sep}+$`), "");
-  return p.startsWith(base + sep) && p.length > base.length + 1;
+  let base = normalize(dir);
+  while (base.length > 1 && base.endsWith(sep)) base = base.slice(0, -1);
+  if (!p.startsWith(base + sep) || p.length <= base.length + 1) return false;
+
+  let ancestor = p;
+  while (!existsSync(ancestor)) {
+    const parent = dirname(ancestor);
+    if (parent === ancestor) return false;
+    ancestor = parent;
+  }
+  try {
+    const realAncestor = realpathSync(ancestor);
+    const realBase = realpathSync(base); // throws if the scratch dir is gone -> deny
+    return realAncestor === realBase || realAncestor.startsWith(realBase + sep);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -190,21 +212,60 @@ function vetDownloadCommand(cmd: "curl" | "wget", args: string[], scratchDir: st
     : { ok: false, reason: `research allows \`${cmd}\` only with an explicit output file inside the scratch dir` };
 }
 
+/** Clone flags that take no value and neither write elsewhere nor execute anything. */
+const CLONE_BOOLEAN_FLAGS = ["--single-branch", "--no-single-branch", "--no-tags", "--quiet", "-q"];
+/** Clone flags whose value is harmless (a depth, a ref name, an object filter). */
+const CLONE_VALUE_FLAGS = ["--depth", "--branch", "-b", "--filter"];
+
+/**
+ * Research clones are allow-listed like downloads: git has clone options
+ * that execute commands before the first fetch (`-c core.sshCommand=...`,
+ * `--upload-pack`, `ext::` transport URLs) or write outside the destination
+ * (`--separate-git-dir`), so only the plain
+ * `git clone [safe flags] <url> <dest-under-scratch>` shape is accepted.
+ */
+function vetCloneCommand(args: string[], scratchDir: string): VetResult {
+  // Global options before `clone` (git -c ..., git -C ...) can inject the
+  // same command-executing config, so the subcommand must come first.
+  if (args[0] !== "clone") {
+    return { ok: false, reason: "global git options are not allowed on research clones" };
+  }
+
+  const cloneArgs = args.slice(1);
+  const positionals: string[] = [];
+  for (let j = 0; j < cloneArgs.length; j++) {
+    const t = cloneArgs[j];
+    if (!t.startsWith("-")) {
+      positionals.push(t);
+      continue;
+    }
+    if (CLONE_BOOLEAN_FLAGS.includes(t)) continue;
+    const valueFlag = CLONE_VALUE_FLAGS.find((f) => t === f || t.startsWith(`${f}=`));
+    if (valueFlag) {
+      if (t === valueFlag) j++; // skip the space-form value
+      continue;
+    }
+    return { ok: false, reason: `\`git clone ${t}\` is not in the research clone allow-list` };
+  }
+
+  if (positionals.length !== 2) {
+    return { ok: false, reason: "research clones must use the explicit `git clone <url> <dest>` form" };
+  }
+  const [url, dest] = positionals;
+  // `ext::`/remote-helper pseudo-URLs execute local commands; require a
+  // plain https/git/ssh URL (or the scp-style git@host:path form).
+  if (!/^(https?|git|ssh):\/\//i.test(url) && !/^git@[^:]+:/.test(url)) {
+    return { ok: false, reason: "research clones must use an https/git/ssh repository URL" };
+  }
+  if (!isUnder(dest, scratchDir)) {
+    return { ok: false, reason: "`git clone` must name a destination inside the research scratch dir" };
+  }
+  return { ok: true };
+}
+
 function vetResearchException(cmd: string, args: string[], scratchDir: string): VetResult | undefined {
   if (cmd === "git" && gitSubcommand(args) === "clone") {
-    const cloneArgs = args.slice(args.indexOf("clone") + 1);
-    // --separate-git-dir relocates the .git directory to an arbitrary path,
-    // escaping the scratch-dir guarantee. Nothing research does needs it.
-    if (cloneArgs.some((t) => t === "--separate-git-dir" || t.startsWith("--separate-git-dir="))) {
-      return { ok: false, reason: "`git clone --separate-git-dir` writes outside the research scratch dir" };
-    }
-    // Require the explicit `git clone <url> <dest>` form; without a dest,
-    // git writes into the shell's cwd -- the tree under review.
-    const positionals = cloneArgs.filter((t) => !t.startsWith("-"));
-    if (positionals.length >= 2 && isUnder(positionals[positionals.length - 1], scratchDir)) {
-      return { ok: true };
-    }
-    return { ok: false, reason: "`git clone` must name an explicit destination inside the research scratch dir" };
+    return vetCloneCommand(args, scratchDir);
   }
 
   if (cmd === "curl" || cmd === "wget") {
@@ -228,6 +289,12 @@ function vetResearchException(cmd: string, args: string[], scratchDir: string): 
  * `scratchDir` scopes the research policy's download/clone exceptions.
  */
 export function vetBashCommand(command: string, policy: BashPolicy, scratchDir?: string): VetResult {
+  // Command/process substitution runs a nested command before the outer one
+  // is even parsed, so no token-level vetting can see it. Deny outright.
+  if (/\$\(|`|<\(/.test(command)) {
+    return { ok: false, reason: "command/process substitution is not allowed in guarded phases" };
+  }
+
   // Redirection writes files. Allow only the harmless forms (fd dups and
   // the null device) by stripping them first; any `>` left over is a write.
   const stripped = command

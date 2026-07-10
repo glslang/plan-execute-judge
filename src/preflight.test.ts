@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
@@ -89,6 +89,18 @@ test("researchPreflight passes remote sources through and resolves local ones", 
     sources: ["https://example.com/docs", "git@github.com:a/b.git", join(dir, "spec.pdf")],
     userResearch: [join(dir, "notes.md")],
   });
+});
+
+test("researchPreflight expands a leading tilde in local paths", () => {
+  const name = `.pej-tilde-test-${process.pid}.md`;
+  const full = join(homedir(), name);
+  writeFileSync(full, "notes\n", "utf-8");
+  try {
+    const cfg = researchPreflight([], [`~/${name}`], "/nonexistent-base");
+    assert.deepEqual(cfg?.userResearch, [full]);
+  } finally {
+    rmSync(full, { force: true });
+  }
 });
 
 test("researchPreflight rejects missing local sources and notes", () => {

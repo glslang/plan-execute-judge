@@ -1,4 +1,7 @@
-import { test } from "node:test";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { vetExecuteCommand, vetReadOnlyCommand, vetResearchCommand } from "./permissions.js";
 
@@ -12,7 +15,15 @@ function denied(command: string) {
   assert.equal(v.ok, false, `expected denied: ${command}`);
 }
 
-const SCRATCH = "/tmp/pej-research-abc123";
+// A real directory: isUnder canonicalizes existing ancestors, so the scratch
+// dir must exist for the research policy to approve anything.
+const SCRATCH = mkdtempSync(join(tmpdir(), "pej-vet-scratch-"));
+const OUTSIDE = mkdtempSync(join(tmpdir(), "pej-vet-outside-"));
+
+after(() => {
+  rmSync(SCRATCH, { recursive: true, force: true });
+  rmSync(OUTSIDE, { recursive: true, force: true });
+});
 
 function allowedResearch(command: string) {
   const v = vetResearchCommand(command, SCRATCH);
@@ -110,6 +121,15 @@ test("research policy allows clones and downloads only into the scratch dir", ()
   deniedResearch(`git clone --separate-git-dir /home/user/leak.git https://github.com/a/b ${SCRATCH}/b`);
   deniedResearch(`git clone --separate-git-dir=${SCRATCH}/g https://github.com/a/b ${SCRATCH}/b`); // denied outright
 
+  // Clone flags are allow-listed: config/transport overrides can execute
+  // commands before the fetch, and pseudo-URLs invoke remote helpers.
+  allowedResearch(`git clone -b main --single-branch https://github.com/a/b ${SCRATCH}/b`);
+  deniedResearch(`git clone -c core.sshCommand=touch git@example.com:a/b.git ${SCRATCH}/b`);
+  deniedResearch(`git -c core.sshCommand=touch clone https://github.com/a/b ${SCRATCH}/b`); // global opts too
+  deniedResearch(`git clone --upload-pack=touch https://github.com/a/b ${SCRATCH}/b`);
+  deniedResearch(`git clone ext::evil ${SCRATCH}/b`);
+  deniedResearch(`git clone /home/user/somerepo ${SCRATCH}/b`); // local-path source: not a fetch URL
+
   allowedResearch(`curl -L -o ${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
   allowedResearch(`curl -L --output=${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
   deniedResearch("curl https://example.com/spec.pdf"); // no output file
@@ -136,6 +156,21 @@ test("research policy allows clones and downloads only into the scratch dir", ()
 
   allowedResearch(`mkdir -p ${SCRATCH}/repos`);
   deniedResearch("mkdir -p out");
+});
+
+test("denies command and process substitution in every policy", () => {
+  denied("cat $(touch /tmp/x)");
+  denied("git log `id`");
+  denied("diff <(sort a.txt) <(sort b.txt)");
+  deniedExecute("npm test $(rm -rf dist)");
+  deniedResearch(`curl -o ${SCRATCH}/f 'https://host/$(touch /tmp/pwned)'`);
+});
+
+test("research policy denies writes through symlinks that escape the scratch dir", () => {
+  symlinkSync(OUTSIDE, join(SCRATCH, "leak"));
+  deniedResearch(`curl -o ${SCRATCH}/leak/spec.pdf https://example.com/spec.pdf`);
+  // A not-yet-existing subdirectory of the scratch dir is still fine.
+  allowedResearch(`curl -o ${SCRATCH}/newdir/spec.pdf https://example.com/spec.pdf`);
 });
 
 test("research policy keeps every other mutation rule", () => {
