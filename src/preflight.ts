@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import type { ResearchConfig } from "./types.js";
 
 export class CliValidationError extends Error {
@@ -58,7 +59,10 @@ export function researchPreflight(
 ): ResearchConfig | undefined {
   if (sources.length === 0 && userResearch.length === 0) return undefined;
 
-  const resolveLocal = (path: string) => resolve(baseDir, path);
+  // A quoted "~/notes.md" reaches us unexpanded by the shell; honor it.
+  const expandTilde = (path: string) =>
+    path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
+  const resolveLocal = (path: string) => resolve(baseDir, expandTilde(path));
   const missing = [
     ...sources.filter((s) => !isRemote(s)).map(resolveLocal),
     ...userResearch.map(resolveLocal),
