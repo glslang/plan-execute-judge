@@ -205,7 +205,11 @@ Env-var prefixes on git/curl/wget are denied in the research phase too --
 `GIT_TRACE=<path>` and similar variables write files wherever they point --
 and the `env` command runner is denied in every guarded phase, since options
 like `env -i`/`env -C` smuggle the real command past token-level vetting.
-Output redirection stays denied even into the scratch dir.
+For the same reason, shell-state and launcher commands (`export`, `eval`,
+`bash -c`, `xargs`, `timeout`, ...) are denied in the read-only and research
+policies (execute keeps them for `export NODE_ENV=test; npm test` style check
+runs), and `find`'s `-exec`/`-delete` flags are denied everywhere. Output
+redirection stays denied even into the scratch dir.
 
 **Execute can edit files, but Bash is check-only.** The execute phase runs with
 `permissionMode: "acceptEdits"` and may use `Write`/`Edit`, so planned file
