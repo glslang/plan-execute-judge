@@ -196,9 +196,12 @@ way -- git has clone options that execute commands before the first fetch
 (`-c core.sshCommand=...`, `--upload-pack`, `ext::` pseudo-URLs) -- so only
 the plain `git clone [safe flags] <https/git/ssh url> <dest-under-scratch>`
 shape passes. Scratch-dir paths are canonicalized against symlinks planted
-by a cloned repo, and command/process substitution (`$(...)`, backticks) is
-denied in every guarded phase, since it executes before any token-level vet
-can see it. Output redirection stays denied even into the scratch dir.
+by a cloned repo -- and because all segments of a chained command are vetted
+before the first one runs, further writes chained after a `git clone` in the
+same command are denied (a separate command re-vets with the clone's symlinks
+now visible). Command/process substitution (`$(...)`, backticks) is denied in
+every guarded phase, since it executes before any token-level vet can see it.
+Output redirection stays denied even into the scratch dir.
 
 **Execute can edit files, but Bash is check-only.** The execute phase runs with
 `permissionMode: "acceptEdits"` and may use `Write`/`Edit`, so planned file
