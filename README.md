@@ -187,10 +187,14 @@ needs the network (WebFetch/WebSearch are in its `allowedTools`) and needs to
 materialize repos and remote documents somewhere. It gets a third Bash policy:
 everything the read-only policy allows, plus `git clone`, `curl -o`/`wget -O`,
 and `mkdir` -- vetted so every destination path is inside a throwaway
-`mkdtemp` scratch dir that is deleted when the phase ends. Forms that would
-write into the shell's cwd (`git clone` without a destination, `curl -O`,
-`wget -P`, bare `wget`) are denied, so the target tree stays untouched until
-execute. Output redirection stays denied even into the scratch dir.
+`mkdtemp` scratch dir that is deleted when the phase ends. Because curl and
+wget have too many file-writing flags to deny one by one (`-O`, `-D`,
+`--trace`, `--libcurl`, clustered shorts like `-OJ`, ...), their research
+vetting is an allow-list: the scratch-dir output flag plus a few known
+non-writing flags, everything else denied. `git clone` requires an explicit
+destination inside the scratch dir (`--separate-git-dir` is denied), so the
+target tree stays untouched until execute. Output redirection stays denied
+even into the scratch dir.
 
 **Execute can edit files, but Bash is check-only.** The execute phase runs with
 `permissionMode: "acceptEdits"` and may use `Write`/`Edit`, so planned file
