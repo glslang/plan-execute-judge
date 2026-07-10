@@ -17,13 +17,27 @@ const FAIL: Verdict = {
 
 /** Phase fakes that record how they were called. */
 function makePhases(verdicts: Verdict[]) {
-  const calls: { executePriorVerdicts: (Verdict | undefined)[]; judgePlans: string[] } = {
+  const calls: {
+    researchCalls: number;
+    planResearch: (string | undefined)[];
+    executePriorVerdicts: (Verdict | undefined)[];
+    judgePlans: string[];
+  } = {
+    researchCalls: 0,
+    planResearch: [],
     executePriorVerdicts: [],
     judgePlans: [],
   };
   let judgeCall = 0;
   const phases: PipelinePhases = {
-    plan: async () => "THE PLAN",
+    research: async () => {
+      calls.researchCalls++;
+      return "THE BRIEF";
+    },
+    plan: async (_cfg, research) => {
+      calls.planResearch.push(research);
+      return "THE PLAN";
+    },
     execute: async (_cfg, _plan, priorVerdict) => {
       calls.executePriorVerdicts.push(priorVerdict);
     },
@@ -45,6 +59,28 @@ test("passes on the first round", async () => {
   assert.deepEqual(result.finalVerdict, PASS);
   assert.deepEqual(calls.executePriorVerdicts, [undefined]);
   assert.deepEqual(calls.judgePlans, ["THE PLAN"]);
+});
+
+test("skips research when cfg.research is unset", async () => {
+  const { phases, calls } = makePhases([PASS]);
+  const result = await runPipeline(makeCfg(), phases);
+
+  assert.equal(calls.researchCalls, 0);
+  assert.deepEqual(calls.planResearch, [undefined]);
+  assert.equal(result.research, undefined);
+});
+
+test("runs research before plan when configured and feeds the brief to plan", async () => {
+  const { phases, calls } = makePhases([PASS]);
+  const result = await runPipeline(
+    makeCfg({ research: { sources: ["https://example.com/spec"], userResearch: [] } }),
+    phases
+  );
+
+  assert.equal(calls.researchCalls, 1);
+  assert.deepEqual(calls.planResearch, ["THE BRIEF"]);
+  assert.equal(result.research, "THE BRIEF");
+  assert.equal(result.passed, true);
 });
 
 test("feeds the failed verdict into the next execute round", async () => {

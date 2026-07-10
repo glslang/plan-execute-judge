@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { CliValidationError, gitPreflight, parseMaxRounds } from "./preflight.js";
+import { CliValidationError, gitPreflight, parseList, parseMaxRounds, researchPreflight } from "./preflight.js";
 
 const tempDirs: string[] = [];
 
@@ -57,6 +57,48 @@ test("parseMaxRounds rejects invalid values before the pipeline starts", () => {
   for (const raw of ["", " ", "0", "-1", "1.5", "NaN", "Infinity", "abc", "1e2"]) {
     assert.throws(() => parseMaxRounds(raw, 3), CliValidationError, `expected ${JSON.stringify(raw)} to be rejected`);
   }
+});
+
+test("parseList splits comma-separated values and drops empty entries", () => {
+  assert.deepEqual(parseList(undefined), []);
+  assert.deepEqual(parseList(""), []);
+  assert.deepEqual(parseList(" , ,"), []);
+  assert.deepEqual(parseList("https://a.com, docs/spec.pdf ,git@github.com:a/b.git"), [
+    "https://a.com",
+    "docs/spec.pdf",
+    "git@github.com:a/b.git",
+  ]);
+});
+
+test("researchPreflight returns undefined when there is nothing to research", () => {
+  assert.equal(researchPreflight([], []), undefined);
+});
+
+test("researchPreflight passes remote sources through and resolves local ones", () => {
+  const dir = makeTempDir();
+  writeFileSync(join(dir, "spec.pdf"), "%PDF-1.4\n", "utf-8");
+  writeFileSync(join(dir, "notes.md"), "my findings\n", "utf-8");
+
+  const cfg = researchPreflight(
+    ["https://example.com/docs", "git@github.com:a/b.git", "spec.pdf"],
+    ["notes.md"],
+    dir
+  );
+
+  assert.deepEqual(cfg, {
+    sources: ["https://example.com/docs", "git@github.com:a/b.git", join(dir, "spec.pdf")],
+    userResearch: [join(dir, "notes.md")],
+  });
+});
+
+test("researchPreflight rejects missing local sources and notes", () => {
+  const dir = makeTempDir();
+  const err = throwsCliValidation(() => researchPreflight(["missing.pdf"], [], dir));
+  assert.match(err.message, /Research input file\(s\) not found/);
+  assert.match(err.message, /missing\.pdf/);
+
+  const err2 = throwsCliValidation(() => researchPreflight([], ["gone-notes.md"], dir));
+  assert.match(err2.message, /gone-notes\.md/);
 });
 
 test("gitPreflight returns HEAD for a clean committed repo", () => {

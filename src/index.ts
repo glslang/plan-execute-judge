@@ -1,13 +1,15 @@
 import { resolve } from "node:path";
 import { DEFAULT_CONFIG, type PipelineConfig } from "./types.js";
 import { runPipeline } from "./orchestrator.js";
-import { CliValidationError, gitPreflight, parseMaxRounds } from "./preflight.js";
+import { CliValidationError, gitPreflight, parseList, parseMaxRounds, researchPreflight } from "./preflight.js";
 
 async function main() {
   const task = process.argv.slice(2).join(" ");
   if (!task) {
     console.error('Usage: npm start -- "<task description>"');
-    console.error("Env: PEJ_TARGET_CWD (target repo), PEJ_MODEL, PEJ_MAX_ROUNDS");
+    console.error("Env: PEJ_TARGET_CWD (target repo), PEJ_MODEL, PEJ_MAX_ROUNDS,");
+    console.error("     PEJ_RESEARCH_SOURCES (urls, repos, docs -- comma-separated),");
+    console.error("     PEJ_RESEARCH_NOTES (your own research files -- comma-separated)");
     process.exit(1);
   }
 
@@ -17,6 +19,10 @@ async function main() {
     ...DEFAULT_CONFIG,
     task,
     cwd,
+    research: researchPreflight(
+      parseList(process.env.PEJ_RESEARCH_SOURCES),
+      parseList(process.env.PEJ_RESEARCH_NOTES)
+    ),
     model: process.env.PEJ_MODEL ?? DEFAULT_CONFIG.model,
     maxRounds: parseMaxRounds(process.env.PEJ_MAX_ROUNDS, DEFAULT_CONFIG.maxRounds),
     baselineRef: gitPreflight(cwd),
