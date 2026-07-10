@@ -118,39 +118,77 @@ function flagValue(flag: string, args: string[], j: number): { value: string; en
   return undefined;
 }
 
-/** Flags whose value is a file/dir the command writes. sawOutput marks the main document output. */
-interface WriteFlagSpec {
-  flag: string;
-  isOutput?: boolean;
+/**
+ * Allow-list for research downloads. curl and wget have too many
+ * file-writing flags to enumerate as a deny-list (-O, -D, --trace,
+ * --libcurl, --stderr, clustered shorts like -OJ, ...), so instead only
+ * these flags are permitted: the document output (validated against the
+ * scratch dir) plus a handful of flags that write nothing. Any other flag
+ * -- including unknown and clustered forms -- is denied.
+ */
+interface DownloadAllowList {
+  /** The document-output flag; its path must be inside the scratch dir. */
+  outputFlags: string[];
+  /** Flags that take no value and write no file. */
+  booleanFlags: string[];
+  /** Clustered short booleans, e.g. curl's -sSL / -fsSL. */
+  booleanCluster?: RegExp;
+  /** Flags whose value is not a written file (headers, timeouts, ...). */
+  valueFlags: string[];
 }
 
-const CURL_WRITE_FLAGS: WriteFlagSpec[] = [
-  { flag: "-o", isOutput: true },
-  { flag: "--output", isOutput: true },
-  // Side outputs: validated against the scratch dir but a download still
-  // needs an explicit -o, since these don't capture the document body.
-  { flag: "-D" },
-  { flag: "--dump-header" },
-  { flag: "--trace" },
-  { flag: "--trace-ascii" },
-  { flag: "-c" },
-  { flag: "--cookie-jar" },
-  { flag: "--etag-save" },
-];
-// curl flags that write into the shell's cwd with no path to vet.
-const CURL_CWD_WRITE_FLAGS = ["-O", "--remote-name", "--remote-name-all", "--output-dir", "-J", "--remote-header-name"];
+const DOWNLOAD_ALLOW_LISTS: Record<"curl" | "wget", DownloadAllowList> = {
+  curl: {
+    outputFlags: ["-o", "--output"],
+    booleanFlags: ["--location", "--silent", "--show-error", "--fail", "--compressed", "--verbose"],
+    booleanCluster: /^-[LsSfv]+$/,
+    valueFlags: ["-H", "--header", "-A", "--user-agent", "--max-time", "--connect-timeout", "--retry"],
+  },
+  wget: {
+    outputFlags: ["-O", "--output-document"],
+    booleanFlags: ["-q", "--quiet", "-nv", "--no-verbose"],
+    valueFlags: ["-T", "--timeout", "-t", "--tries", "-U", "--user-agent", "--header"],
+  },
+};
 
-const WGET_WRITE_FLAGS: WriteFlagSpec[] = [
-  { flag: "-O", isOutput: true },
-  { flag: "--output-document", isOutput: true },
-  { flag: "-o" }, // log file, not the download
-  { flag: "--output-file" },
-  { flag: "-a" },
-  { flag: "--append-output" },
-  { flag: "--save-cookies" },
-  { flag: "--warc-file" },
-];
-const WGET_CWD_WRITE_FLAGS = ["-P", "--directory-prefix"];
+function vetDownloadCommand(cmd: "curl" | "wget", args: string[], scratchDir: string): VetResult {
+  const spec = DOWNLOAD_ALLOW_LISTS[cmd];
+  let sawOutput = false;
+
+  for (let j = 0; j < args.length; j++) {
+    const t = args[j];
+    if (!t.startsWith("-")) continue; // positional: the URL
+
+    const outputHit = spec.outputFlags
+      .map((f) => flagValue(f, args, j))
+      .find((hit) => hit !== undefined);
+    if (outputHit) {
+      if (!isUnder(outputHit.value, scratchDir)) {
+        return { ok: false, reason: `\`${cmd}\` may only download into the research scratch dir` };
+      }
+      sawOutput = true;
+      j = outputHit.end;
+      continue;
+    }
+
+    if (spec.booleanFlags.includes(t) || spec.booleanCluster?.test(t)) continue;
+
+    const valueFlag = spec.valueFlags.find((f) => t === f || t.startsWith(`${f}=`));
+    if (valueFlag) {
+      if (t === valueFlag) j++; // skip the space-form value
+      continue;
+    }
+
+    return {
+      ok: false,
+      reason: `\`${cmd} ${t}\` is not in the research download allow-list (use \`${cmd} ${spec.outputFlags[0]} <scratch-path> <url>\`)`,
+    };
+  }
+
+  return sawOutput
+    ? { ok: true }
+    : { ok: false, reason: `research allows \`${cmd}\` only with an explicit output file inside the scratch dir` };
+}
 
 function vetResearchException(cmd: string, args: string[], scratchDir: string): VetResult | undefined {
   if (cmd === "git" && gitSubcommand(args) === "clone") {
@@ -170,31 +208,7 @@ function vetResearchException(cmd: string, args: string[], scratchDir: string): 
   }
 
   if (cmd === "curl" || cmd === "wget") {
-    // curl's -O and wget's -P/default drop files into the shell's cwd, so
-    // only explicit output-file forms are allowed -- and EVERY flag that
-    // writes a file (headers, traces, cookies, logs, ...) must point inside
-    // the scratch dir, not just the document output.
-    const writeFlags = cmd === "curl" ? CURL_WRITE_FLAGS : WGET_WRITE_FLAGS;
-    const cwdWriteFlags = cmd === "curl" ? CURL_CWD_WRITE_FLAGS : WGET_CWD_WRITE_FLAGS;
-    let sawOutput = false;
-    for (let j = 0; j < args.length; j++) {
-      const t = args[j];
-      if (cwdWriteFlags.some((f) => t === f || t.startsWith(`${f}=`))) {
-        return { ok: false, reason: `\`${cmd} ${t}\` writes outside the research scratch dir` };
-      }
-      const match = writeFlags
-        .map((spec) => ({ spec, hit: flagValue(spec.flag, args, j) }))
-        .find((m) => m.hit !== undefined);
-      if (!match?.hit) continue;
-      if (!isUnder(match.hit.value, scratchDir)) {
-        return { ok: false, reason: `\`${cmd} ${match.spec.flag}\` may only write into the research scratch dir` };
-      }
-      if (match.spec.isOutput) sawOutput = true;
-      j = match.hit.end;
-    }
-    return sawOutput
-      ? { ok: true }
-      : { ok: false, reason: `research allows \`${cmd}\` only with an explicit output file inside the scratch dir` };
+    return vetDownloadCommand(cmd, args, scratchDir);
   }
 
   if (cmd === "mkdir") {

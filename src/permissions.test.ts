@@ -120,15 +120,19 @@ test("research policy allows clones and downloads only into the scratch dir", ()
   deniedResearch("wget https://example.com/spec.pdf"); // writes into the shell cwd
   deniedResearch(`wget -P ${SCRATCH} https://example.com/spec.pdf`);
 
-  // Side-output flags must point into the scratch dir too, not just -o/-O.
-  allowedResearch(`curl -o ${SCRATCH}/spec.pdf -D ${SCRATCH}/headers.txt https://example.com/spec.pdf`);
+  // Downloads are allow-listed: only known non-writing flags pass, so every
+  // file-writing flag curl/wget grows is denied by default.
+  allowedResearch(`curl -sSL --retry 3 -H 'Accept: application/pdf' -o ${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
   deniedResearch(`curl -o ${SCRATCH}/spec.pdf -D /home/user/headers.txt https://example.com/spec.pdf`);
+  deniedResearch(`curl -o ${SCRATCH}/spec.pdf -D ${SCRATCH}/headers.txt https://example.com/x`); // not on the allow-list, even into scratch
   deniedResearch(`curl -o ${SCRATCH}/spec.pdf --trace /home/user/trace.log https://example.com/spec.pdf`);
-  deniedResearch(`curl -o ${SCRATCH}/spec.pdf -c /home/user/cookies https://example.com/spec.pdf`);
+  deniedResearch(`curl -o ${SCRATCH}/spec.pdf --libcurl /home/user/leak.c https://example.com/spec.pdf`);
+  deniedResearch(`curl -o ${SCRATCH}/spec.pdf --stderr /home/user/err.log https://example.com/spec.pdf`);
+  deniedResearch(`curl -OJ -o ${SCRATCH}/ok https://example.com/x`); // clustered remote-name flags
   deniedResearch(`curl -o/home/user/evil -o ${SCRATCH}/ok https://example.com/x`); // attached short form
-  allowedResearch(`wget -O ${SCRATCH}/spec.pdf -o ${SCRATCH}/wget.log https://example.com/spec.pdf`);
+  allowedResearch(`wget -q -O ${SCRATCH}/spec.pdf https://example.com/spec.pdf`);
   deniedResearch(`wget -O ${SCRATCH}/spec.pdf -o /home/user/wget.log https://example.com/spec.pdf`);
-  deniedResearch(`wget -o ${SCRATCH}/wget.log https://example.com/spec.pdf`); // log in scratch but download to cwd
+  deniedResearch(`wget -o ${SCRATCH}/wget.log https://example.com/spec.pdf`); // log flag isn't the download output
 
   allowedResearch(`mkdir -p ${SCRATCH}/repos`);
   deniedResearch("mkdir -p out");
