@@ -158,6 +158,27 @@ test("research policy allows clones and downloads only into the scratch dir", ()
   deniedResearch("mkdir -p out");
 });
 
+test("denies shell-state and launcher commands in read-only and research policies", () => {
+  denied("export GIT_TRACE=/home/user/leak; git status");
+  denied('bash -c "rm -rf dist"');
+  denied("eval rm -rf dist");
+  denied("cat files.txt | xargs rm");
+  denied("source ./setup.sh");
+  denied("trap 'rm -rf dist' EXIT; true");
+  denied("timeout 30 curl https://example.com");
+  deniedResearch(`export GIT_TRACE=/home/user/leak; git clone https://github.com/a/b ${SCRATCH}/b`);
+  deniedResearch(`timeout 30 curl -o ${SCRATCH}/f https://example.com/x`);
+  // Execute keeps them for legitimate check-run setups.
+  allowedExecute("export NODE_ENV=test; npm test");
+});
+
+test("denies find's exec/delete flags in every policy", () => {
+  denied("find . -delete");
+  denied("find src -name '*.tmp' -exec rm {} +");
+  deniedExecute("find . -delete");
+  allowed("find . -name '*.ts'");
+});
+
 test("denies the env command runner in every policy", () => {
   // env's options (-i, -u, -C, -S) relaunch the real command in ways
   // token-level vetting can't see; plain FOO=bar prefixes still work.

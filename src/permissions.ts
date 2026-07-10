@@ -86,6 +86,50 @@ const PKG_MANAGERS = new Set(["npm", "yarn", "pnpm", "bun", "pip", "pip3", "uv"]
 /** git options that take a separate value argument, so the value must be skipped. */
 const GIT_OPTS_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace"]);
 
+/**
+ * Commands that set shell state for later segments or relaunch their
+ * arguments as a new command -- either way the real effect is invisible to
+ * token-level vetting (`export GIT_TRACE=...; git ...`, `bash -c "..."`,
+ * `eval rm ...`, `xargs rm`, `timeout 5 curl ...`). Denied in the
+ * write-guarded read-only/research policies; execute keeps them so
+ * `export NODE_ENV=test; npm test` style check runs still work.
+ */
+const SHELL_STATE_OR_LAUNCHER_COMMANDS = new Set([
+  "eval",
+  "exec",
+  "source",
+  ".",
+  "export",
+  "declare",
+  "typeset",
+  "readonly",
+  "alias",
+  "builtin",
+  "command",
+  "set",
+  "shopt",
+  "trap",
+  "xargs",
+  "sh",
+  "bash",
+  "zsh",
+  "dash",
+  "ksh",
+  "fish",
+  "sudo",
+  "su",
+  "doas",
+  "nohup",
+  "setsid",
+  "stdbuf",
+  "nice",
+  "timeout",
+  "time",
+]);
+
+/** find flags that execute commands or delete files. */
+const FIND_MUTATING_FLAGS = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete"]);
+
 export type VetResult = { ok: true } | { ok: false; reason: string };
 export type BashPolicy = "read-only" | "execute" | "research";
 
@@ -321,6 +365,17 @@ export function vetBashCommand(command: string, policy: BashPolicy, scratchDir?:
     // (e.g. `env -i GIT_TRACE=/leak git ...` hides both the var and git).
     if (cmd === "env") {
       return { ok: false, reason: "`env` can smuggle options and variables past command vetting; use plain FOO=bar prefixes instead" };
+    }
+
+    if (policy !== "execute" && SHELL_STATE_OR_LAUNCHER_COMMANDS.has(cmd)) {
+      return {
+        ok: false,
+        reason: `\`${cmd}\` sets shell state or relaunches its arguments, which command vetting cannot see; run the underlying command directly`,
+      };
+    }
+
+    if (cmd === "find" && tokens.slice(i + 1).some((t) => FIND_MUTATING_FLAGS.has(t))) {
+      return { ok: false, reason: "`find` with -exec/-delete style flags executes commands or removes files" };
     }
 
     if (policy === "research" && scratchDir !== undefined) {
