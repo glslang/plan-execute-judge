@@ -32,6 +32,16 @@ export function parseMaxRounds(raw: string | undefined, defaultValue: number): n
   return parsed;
 }
 
+export function parseBooleanEnv(raw: string | undefined, defaultValue: boolean, name: string): boolean {
+  if (raw === undefined) return defaultValue;
+
+  const value = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+
+  throw new CliValidationError(`${name} must be one of 1, 0, true, false, yes, no, on, off; got ${JSON.stringify(raw)}`);
+}
+
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly EffortLevel[];
 const AGENT_BACKENDS = ["claude", "codex"] as const satisfies readonly AgentBackend[];
 
@@ -115,7 +125,7 @@ export function researchPreflight(
  * start clean so pre-existing changes can't be confused with pipeline output.
  * Returns undefined for a fresh repo with no commits yet.
  */
-export function gitPreflight(cwd: string): string | undefined {
+export function gitPreflight(cwd: string, opts: { allowDirty?: boolean } = {}): string | undefined {
   try {
     git(cwd, ["rev-parse", "--is-inside-work-tree"]);
   } catch {
@@ -129,6 +139,10 @@ export function gitPreflight(cwd: string): string | undefined {
     baselineRef = git(cwd, ["rev-parse", "--verify", "HEAD"]);
   } catch {
     return undefined;
+  }
+
+  if (opts.allowDirty) {
+    return baselineRef;
   }
 
   const status = git(cwd, ["status", "--porcelain", "--untracked-files=all"]);

@@ -81,11 +81,24 @@ export interface PipelineConfig {
   cwd: string;
 
   /**
+   * Resume a prior interrupted pipeline run from its checkpoint/artifacts
+   * instead of requiring a clean tree and starting from research/plan again.
+   */
+  resume: boolean;
+
+  /**
    * Optional deep-research step before planning. When set, the research
    * phase ingests the sources and user notes and hands the plan phase a
    * self-contained research brief. When undefined, planning starts directly.
    */
   research?: ResearchConfig;
+
+  /**
+   * True when the research artifact belongs to this pipeline run. On resume,
+   * this can stay true even when the original PEJ_RESEARCH_* env vars are not
+   * repeated, so execute/judge still ignore RESEARCH.md as pipeline output.
+   */
+  researchArtifact: boolean;
 
   /** Agent runtime used for every phase. */
   backend: AgentBackend;
@@ -112,6 +125,12 @@ export interface PipelineConfig {
    * boundary in memory. Only written when the research phase runs.
    */
   researchFile: string;
+
+  /**
+   * JSON checkpoint written between phases. Used by PEJ_RESUME=1 to skip
+   * completed phases after an interrupted run.
+   */
+  stateFile: string;
 
   /** Max execute -> judge cycles before giving up. Must be >= 1. */
   maxRounds: number;
@@ -160,17 +179,22 @@ export interface PipelineConfig {
  * legitimately touches a file with that name must stay in scope.
  */
 export function pipelineArtifactFiles(
-  cfg: Pick<PipelineConfig, "research" | "planFile" | "researchFile">
+  cfg: Pick<PipelineConfig, "research" | "researchArtifact" | "planFile" | "researchFile" | "stateFile">
 ): string[] {
-  return cfg.research ? [cfg.planFile, cfg.researchFile] : [cfg.planFile];
+  const files = [cfg.planFile, cfg.stateFile];
+  if (cfg.research || cfg.researchArtifact) files.splice(1, 0, cfg.researchFile);
+  return files;
 }
 
 export const DEFAULT_CONFIG: Omit<PipelineConfig, "task" | "cwd"> = {
+  resume: false,
   backend: "claude",
   model: DEFAULT_MODELS.claude,
   effort: "high",
+  researchArtifact: false,
   planFile: "PLAN.md",
   researchFile: "RESEARCH.md",
+  stateFile: ".pej-state.json",
   maxRounds: 3,
   maxTurns: { research: 128, plan: 64, execute: 256, judge: 64 },
   settingSources: [],

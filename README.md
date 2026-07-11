@@ -110,6 +110,7 @@ for you to review -- the pipeline never commits.
 | `PEJ_BACKEND`          | Agent runtime (`claude` or `codex`)                              | `claude`          |
 | `PEJ_MODEL`            | Model id for every phase                                         | backend-specific  |
 | `PEJ_EFFORT`           | Reasoning effort (`low`, `medium`, `high`, `xhigh`; Claude also supports `max`) | `high` |
+| `PEJ_RESUME`           | Resume an interrupted run from `.pej-state.json`/artifacts       | `0`               |
 | `PEJ_MAX_ROUNDS`       | Execute -> judge cycles before giving up                         | `3`               |
 | `PEJ_RESEARCH_SOURCES` | Comma-separated research sources (URLs, git repos, PDFs/docs)    | unset             |
 | `PEJ_RESEARCH_NOTES`   | Comma-separated files of research you've already done            | unset             |
@@ -126,6 +127,25 @@ Codex runs research and planning in its read-only sandbox, execution in its
 workspace-write sandbox, and judging in the read-only sandbox with the verdict
 schema supplied as structured output. Each phase starts a fresh Codex thread,
 matching the pipeline's no-transcript-sharing design.
+
+### Resuming an interrupted run
+
+Each run writes `.pej-state.json` before and after every phase. If a phase
+stops for an external reason, such as a Codex usage-limit error during
+`execute`, rerun the same task with `PEJ_RESUME=1` after the limit resets:
+
+```sh
+PEJ_RESUME=1 PEJ_BACKEND=codex PEJ_MODEL=gpt-5.6-sol PEJ_EFFORT=xhigh \
+npm start -- "implement the task"
+```
+
+Resume mode skips completed phases, reuses `PLAN.md` and `RESEARCH.md` when
+present, and allows the dirty working tree left by a partial execute. If
+`execute` failed, it runs execute again against the partial tree. If `execute`
+finished and `judge` failed, it resumes at judge instead of rerunning execute.
+On a successful pass, the checkpoint is removed. For older runs that failed
+before `.pej-state.json` existed, resume can still reuse `PLAN.md` and start at
+execute round 1.
 
 Per-phase overrides (`researchModel` / `planModel` / `executeModel` /
 `judgeModel`, `maxTurns`, allowed tools) live in `src/types.ts` if you're
