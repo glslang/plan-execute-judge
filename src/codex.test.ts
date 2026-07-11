@@ -27,3 +27,9 @@ test("codexThreadOptions maps pipeline settings to an unattended Codex thread", 
 test("Codex rejects Claude-only max effort", () => {
   assert.throws(() => toCodexEffort("max"), /use "xhigh"/);
 });
+
+test("Codex passes through supported effort levels", () => {
+  for (const effort of ["low", "medium", "high", "xhigh"] as const) {
+    assert.equal(toCodexEffort(effort), effort);
+  }
+});

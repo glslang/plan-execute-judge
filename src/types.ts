@@ -109,6 +109,9 @@ export interface PipelineConfig {
   /** Pause after the final plan is written and require a human approval before execute. */
   planApproval: boolean;
 
+  /** Timeout for each Codex phase before aborting the SDK turn. */
+  codexPhaseTimeoutMs: number;
+
   /** Agent runtime used for every phase. */
   backend: AgentBackend;
 
@@ -233,6 +236,7 @@ export const DEFAULT_CONFIG: Omit<PipelineConfig, "task" | "cwd"> = {
   researchAgents: 1,
   planAgents: 1,
   planApproval: false,
+  codexPhaseTimeoutMs: 30 * 60 * 1000,
   planFile: "PLAN.md",
   researchFile: "RESEARCH.md",
   stateFile: ".pej-state.json",

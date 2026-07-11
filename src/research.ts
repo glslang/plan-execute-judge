@@ -118,6 +118,7 @@ message -- no preamble.
         sandboxMode: "read-only",
         networkAccessEnabled: true,
         webSearchEnabled: true,
+        timeoutMs: cfg.codexPhaseTimeoutMs,
         verbose: true,
       });
     } else {

@@ -58,6 +58,7 @@ Output the final plan only, with:
       effort: cfg.effort,
       cwd: cfg.cwd,
       sandboxMode: "read-only",
+      timeoutMs: cfg.codexPhaseTimeoutMs,
       verbose: true,
     });
   } else {
@@ -81,4 +82,3 @@ Output the final plan only, with:
   writeFileSync(resolve(cfg.cwd, cfg.planFile), planText, "utf-8");
   return planText;
 }
-

@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_CONFIG, DEFAULT_MODELS, type PipelineConfig } from "./types.js";
 import { runPipeline } from "./orchestrator.js";
@@ -21,7 +20,7 @@ async function main() {
   if (!task) {
     console.error('Usage: npm start -- "<task description>"');
     console.error("Env: PEJ_TARGET_CWD (target repo), PEJ_BACKEND, PEJ_MODEL, PEJ_EFFORT, PEJ_RESUME,");
-    console.error("     PEJ_MAX_ROUNDS, PEJ_RESEARCH_AGENTS, PEJ_PLAN_AGENTS, PEJ_PLAN_APPROVAL,");
+    console.error("     PEJ_MAX_ROUNDS, PEJ_CODEX_TIMEOUT_MS, PEJ_RESEARCH_AGENTS, PEJ_PLAN_AGENTS, PEJ_PLAN_APPROVAL,");
     console.error("     PEJ_RESEARCH_SOURCES (urls, repos, docs -- comma-separated),");
     console.error("     PEJ_RESEARCH_NOTES (your own research files -- comma-separated)");
     process.exit(1);
@@ -31,10 +30,16 @@ async function main() {
   const resume = parseBooleanEnv(process.env.PEJ_RESUME, DEFAULT_CONFIG.resume, "PEJ_RESUME");
   const backend = parseBackend(process.env.PEJ_BACKEND, DEFAULT_CONFIG.backend);
   const savedState = resume ? loadPipelineState(cwd, DEFAULT_CONFIG.stateFile) : undefined;
+  if (resume && !savedState) {
+    throw new CliValidationError(
+      `Cannot resume: no checkpoint found at ${DEFAULT_CONFIG.stateFile}. Re-run without PEJ_RESUME to start fresh.`
+    );
+  }
   const research =
     savedState?.research ??
     researchPreflight(parseList(process.env.PEJ_RESEARCH_SOURCES), parseList(process.env.PEJ_RESEARCH_NOTES));
-  const baselineRef = savedState ? savedState.baselineRef : gitPreflight(cwd, { allowDirty: resume });
+  const currentBaselineRef = gitPreflight(cwd, { allowDirty: Boolean(savedState) });
+  const baselineRef = savedState ? savedState.baselineRef : currentBaselineRef;
   const researchAgents =
     savedState?.researchAgents ??
     parsePositiveIntegerEnv(process.env.PEJ_RESEARCH_AGENTS, DEFAULT_CONFIG.researchAgents, "PEJ_RESEARCH_AGENTS");
@@ -44,6 +49,11 @@ async function main() {
   const planApproval =
     savedState?.planApproval ??
     parseBooleanEnv(process.env.PEJ_PLAN_APPROVAL, DEFAULT_CONFIG.planApproval, "PEJ_PLAN_APPROVAL");
+  const codexPhaseTimeoutMs = parsePositiveIntegerEnv(
+    process.env.PEJ_CODEX_TIMEOUT_MS,
+    DEFAULT_CONFIG.codexPhaseTimeoutMs,
+    "PEJ_CODEX_TIMEOUT_MS"
+  );
 
   const cfg: PipelineConfig = {
     ...DEFAULT_CONFIG,
@@ -52,10 +62,11 @@ async function main() {
     resume,
     backend,
     research,
-    researchArtifact: Boolean(research) || (resume && existsSync(resolve(cwd, DEFAULT_CONFIG.researchFile))),
+    researchArtifact: savedState ? savedState.researchEnabled : Boolean(research),
     researchAgents,
     planAgents,
     planApproval,
+    codexPhaseTimeoutMs,
     model: process.env.PEJ_MODEL ?? DEFAULT_MODELS[backend],
     effort: parseEffort(process.env.PEJ_EFFORT, DEFAULT_CONFIG.effort),
     maxRounds: parseMaxRounds(process.env.PEJ_MAX_ROUNDS, DEFAULT_CONFIG.maxRounds),

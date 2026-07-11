@@ -120,6 +120,7 @@ for you to review -- the pipeline never commits.
 | `PEJ_MODEL`            | Model id for every phase                                         | backend-specific  |
 | `PEJ_EFFORT`           | Reasoning effort (`low`, `medium`, `high`, `xhigh`; Claude also supports `max`) | `high` |
 | `PEJ_RESUME`           | Resume an interrupted run from `.pej-state.json`/artifacts       | `0`               |
+| `PEJ_CODEX_TIMEOUT_MS` | Abort a stuck Codex phase after this many milliseconds           | `1800000`         |
 | `PEJ_RESEARCH_AGENTS`  | Independent research agents when research is enabled             | `1`               |
 | `PEJ_PLAN_AGENTS`      | Independent planning agents before `refinements`                 | `1`               |
 | `PEJ_PLAN_APPROVAL`    | Require a human to approve `PLAN.md` before execute              | `0`               |
@@ -172,13 +173,13 @@ PEJ_RESUME=1 PEJ_BACKEND=codex PEJ_MODEL=gpt-5.6-sol PEJ_EFFORT=xhigh \
 npm start -- "implement the task"
 ```
 
-Resume mode skips completed phases, reuses `PLAN.md`, `RESEARCH.md`, and any
-multi-agent candidate artifacts when present, and allows the dirty working tree
-left by a partial execute. If `execute` failed, it runs execute again against
-the partial tree. If `execute` finished and `judge` failed, it resumes at judge
-instead of rerunning execute. On a successful pass, the checkpoint is removed.
-For older runs that failed before `.pej-state.json` existed, resume can still
-reuse `PLAN.md` and start at approval or execute.
+Resume mode requires `.pej-state.json`; a stale `PEJ_RESUME=1` fails before the
+clean-tree guard is relaxed. It skips completed phases, reuses `PLAN.md`,
+`RESEARCH.md`, and any multi-agent candidate artifacts named by the checkpoint,
+and allows the dirty working tree left by a partial execute. If `execute`
+failed, it runs execute again against the partial tree. If `execute` finished
+and `judge` failed, it resumes at judge instead of rerunning execute. On a
+successful pass, the checkpoint is removed.
 
 Per-phase overrides (`researchModel` / `planModel` / `refinementsModel` /
 `executeModel` / `judgeModel`, `maxTurns`, allowed tools) live in
