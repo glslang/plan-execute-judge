@@ -4,7 +4,15 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { CliValidationError, gitPreflight, parseList, parseMaxRounds, researchPreflight } from "./preflight.js";
+import {
+  CliValidationError,
+  gitPreflight,
+  parseBackend,
+  parseEffort,
+  parseList,
+  parseMaxRounds,
+  researchPreflight,
+} from "./preflight.js";
 
 const tempDirs: string[] = [];
 
@@ -56,6 +64,29 @@ test("parseMaxRounds accepts valid integers and defaults missing values", () => 
 test("parseMaxRounds rejects invalid values before the pipeline starts", () => {
   for (const raw of ["", " ", "0", "-1", "1.5", "NaN", "Infinity", "abc", "1e2"]) {
     assert.throws(() => parseMaxRounds(raw, 3), CliValidationError, `expected ${JSON.stringify(raw)} to be rejected`);
+  }
+});
+
+test("parseEffort accepts supported levels and defaults missing values", () => {
+  assert.equal(parseEffort(undefined, "high"), "high");
+  assert.equal(parseEffort(" xhigh ", "high"), "xhigh");
+  assert.equal(parseEffort("MAX", "high"), "max");
+});
+
+test("parseEffort rejects unsupported levels before the pipeline starts", () => {
+  for (const raw of ["", "highest", "minimal", "x-high"]) {
+    assert.throws(() => parseEffort(raw, "high"), CliValidationError);
+  }
+});
+
+test("parseBackend accepts supported runtimes and defaults missing values", () => {
+  assert.equal(parseBackend(undefined, "claude"), "claude");
+  assert.equal(parseBackend(" CODEX ", "claude"), "codex");
+});
+
+test("parseBackend rejects unsupported runtimes before the pipeline starts", () => {
+  for (const raw of ["", "openai", "anthropic", "other"]) {
+    assert.throws(() => parseBackend(raw, "claude"), CliValidationError);
   }
 });
 
