@@ -1,8 +1,15 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { PipelineConfig, Verdict } from "./types.js";
-import { runResearch } from "./research.js";
-import { runPlan } from "./plan.js";
+import {
+  planAgentFile,
+  researchAgentFile,
+  type PipelineConfig,
+  type Verdict,
+} from "./types.js";
+import { runResearch, type ResearchRunOptions } from "./research.js";
+import { runPlan, type PlanRunOptions } from "./plan.js";
+import { runRefinements } from "./refinements.js";
+import { approvePlan } from "./approval.js";
 import { runExecute } from "./execute.js";
 import { runJudge } from "./judge.js";
 import {
@@ -24,13 +31,14 @@ export interface PipelineResult {
 }
 
 /**
- * The phases as an injectable seam, so the loop below is testable
- * without the SDK, a git repo, or an API key. `research` only runs when
- * `cfg.research` is set; its brief is handed to `plan`.
+ * The phases as injectable functions, so the loop below is testable without
+ * the SDK, a git repo, or an API key.
  */
 export interface PipelinePhases {
-  research: (cfg: PipelineConfig) => Promise<string>;
-  plan: (cfg: PipelineConfig, research?: string) => Promise<string>;
+  research: (cfg: PipelineConfig, opts?: ResearchRunOptions) => Promise<string>;
+  plan: (cfg: PipelineConfig, research?: string, opts?: PlanRunOptions) => Promise<string>;
+  refinements: (cfg: PipelineConfig, plans: string[], research?: string) => Promise<string>;
+  approvePlan: (cfg: PipelineConfig, plan: string) => Promise<string>;
   execute: (cfg: PipelineConfig, plan: string, priorVerdict?: Verdict) => Promise<void>;
   judge: (cfg: PipelineConfig, plan: string) => Promise<Verdict>;
 }
@@ -38,6 +46,8 @@ export interface PipelinePhases {
 const DEFAULT_PHASES: PipelinePhases = {
   research: runResearch,
   plan: runPlan,
+  refinements: runRefinements,
+  approvePlan,
   execute: runExecute,
   judge: runJudge,
 };
@@ -80,6 +90,18 @@ function initialPhase(cfg: PipelineConfig): PipelinePhase {
   return cfg.research ? "research" : "plan";
 }
 
+function phaseAfterPlan(cfg: PipelineConfig): PipelinePhase {
+  return cfg.planAgents > 1 ? "refinements" : cfg.planApproval ? "approve_plan" : "execute";
+}
+
+function phaseAfterRefinements(cfg: PipelineConfig): PipelinePhase {
+  return cfg.planApproval ? "approve_plan" : "execute";
+}
+
+function fallbackPlanPhase(cfg: PipelineConfig): PipelinePhase {
+  return cfg.planApproval ? "approve_plan" : "execute";
+}
+
 function stateFor(
   cfg: PipelineConfig,
   phase: PipelinePhase,
@@ -95,10 +117,65 @@ function stateFor(
     baselineRef: cfg.baselineRef,
     researchEnabled,
     research: cfg.research,
+    researchAgents: cfg.researchAgents,
+    planAgents: cfg.planAgents,
+    planApproval: cfg.planApproval,
     planFile: cfg.planFile,
     researchFile: cfg.researchFile,
     lastVerdict,
   };
+}
+
+function combineResearchBriefs(briefs: string[]): string {
+  if (briefs.length === 1) return briefs[0];
+  return briefs.map((brief, index) => `# Research agent ${index + 1}\n\n${brief.trim()}`).join("\n\n");
+}
+
+function readPlanCandidates(cfg: PipelineConfig): string[] {
+  if (cfg.planAgents === 1) return [readResumeArtifact(cfg, cfg.planFile, "plan")];
+  return Array.from({ length: cfg.planAgents }, (_, index) =>
+    readResumeArtifact(cfg, planAgentFile(cfg, index + 1), `plan agent ${index + 1}`)
+  );
+}
+
+async function runResearchAgents(cfg: PipelineConfig, phases: PipelinePhases): Promise<string> {
+  if (!cfg.research) {
+    throw new ResumeStateError("Cannot run the research phase without research inputs.");
+  }
+
+  console.log(
+    `\n[research] ingesting ${cfg.research.sources.length} source(s), ${cfg.research.userResearch.length} user note(s) with ${cfg.researchAgents} agent(s)`
+  );
+  const briefs = await Promise.all(
+    Array.from({ length: cfg.researchAgents }, (_, index) => {
+      const agentIndex = index + 1;
+      const outputFile = cfg.researchAgents === 1 ? cfg.researchFile : researchAgentFile(cfg, agentIndex);
+      return phases.research(cfg, { agentIndex, agentCount: cfg.researchAgents, outputFile });
+    })
+  );
+  const research = combineResearchBriefs(briefs);
+  writeFileSync(resolve(cfg.cwd, cfg.researchFile), research, "utf-8");
+  console.log(`\n[research] brief written to ${cfg.researchFile}\n`);
+  return research;
+}
+
+async function runPlanAgents(cfg: PipelineConfig, phases: PipelinePhases, research?: string): Promise<string[]> {
+  console.log(`\n[plan] running ${cfg.planAgents} planning agent(s)`);
+  const plans = await Promise.all(
+    Array.from({ length: cfg.planAgents }, (_, index) => {
+      const agentIndex = index + 1;
+      const outputFile = cfg.planAgents === 1 ? cfg.planFile : planAgentFile(cfg, agentIndex);
+      return phases.plan(cfg, research, { agentIndex, agentCount: cfg.planAgents, outputFile });
+    })
+  );
+
+  if (cfg.planAgents === 1) {
+    console.log(`\n[plan] written to ${cfg.planFile}\n`);
+  } else {
+    console.log(`\n[plan] ${cfg.planAgents} candidate plans written\n`);
+  }
+
+  return plans;
 }
 
 export async function runPipeline(
@@ -107,6 +184,12 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   if (!Number.isInteger(cfg.maxRounds) || cfg.maxRounds < 1) {
     throw new Error(`maxRounds must be a positive integer, got ${cfg.maxRounds}`);
+  }
+  if (!Number.isInteger(cfg.researchAgents) || cfg.researchAgents < 1) {
+    throw new Error(`researchAgents must be a positive integer, got ${cfg.researchAgents}`);
+  }
+  if (!Number.isInteger(cfg.planAgents) || cfg.planAgents < 1) {
+    throw new Error(`planAgents must be a positive integer, got ${cfg.planAgents}`);
   }
 
   const savedState = cfg.resume ? loadPipelineState(cfg.cwd, cfg.stateFile) : undefined;
@@ -124,27 +207,31 @@ export async function runPipeline(
 
   const researchEnabled = savedState?.researchEnabled ?? Boolean(cfg.research || cfg.researchArtifact);
   let phase: PipelinePhase =
-    savedState?.phase ?? (fallbackPlanExists ? "execute" : fallbackResearchExists ? "plan" : initialPhase(cfg));
+    savedState?.phase ?? (fallbackPlanExists ? fallbackPlanPhase(cfg) : fallbackResearchExists ? "plan" : initialPhase(cfg));
   let currentRound = savedState?.round ?? 1;
   let verdict = savedState?.lastVerdict;
 
   let research: string | undefined;
   let plan: string | undefined;
+  let planCandidates: string[] | undefined;
 
   if (savedState) {
     console.log(`\n[resume] loaded ${cfg.stateFile}; continuing at ${phase} round ${currentRound}\n`);
   } else if (fallbackPlanExists) {
-    console.log(`\n[resume] no checkpoint found; reusing ${cfg.planFile} and continuing at execute round 1\n`);
+    console.log(`\n[resume] no checkpoint found; reusing ${cfg.planFile} and continuing at ${phase}\n`);
   } else if (fallbackResearchExists) {
     console.log(`\n[resume] no checkpoint found; reusing ${cfg.researchFile} and continuing at plan\n`);
   }
 
-  if (researchEnabled && phase === "plan") {
+  if (researchEnabled && (phase === "plan" || phase === "refinements")) {
     research = readResumeArtifact(cfg, cfg.researchFile, "research");
-  } else if (researchEnabled && (phase === "execute" || phase === "judge")) {
+  } else if (researchEnabled && (phase === "approve_plan" || phase === "execute" || phase === "judge")) {
     research = tryReadResumeArtifact(cfg, cfg.researchFile);
   }
-  if (phase === "execute" || phase === "judge") {
+  if (phase === "refinements") {
+    planCandidates = readPlanCandidates(cfg);
+  }
+  if (phase === "approve_plan" || phase === "execute" || phase === "judge") {
     plan = readResumeArtifact(cfg, cfg.planFile, "plan");
   }
 
@@ -155,19 +242,37 @@ export async function runPipeline(
   checkpoint(phase, currentRound, verdict);
 
   if (phase === "research") {
-    if (!cfg.research) {
-      throw new ResumeStateError("Cannot run the research phase without research inputs.");
-    }
-    console.log(`\n[research] ingesting ${cfg.research.sources.length} source(s), ${cfg.research.userResearch.length} user note(s)`);
-    research = await phases.research(cfg);
-    console.log(`\n[research] brief written to ${cfg.researchFile}\n`);
+    research = await runResearchAgents(cfg, phases);
     phase = "plan";
     checkpoint(phase, currentRound, verdict);
   }
 
   if (phase === "plan") {
-    plan = await phases.plan(cfg, research);
-    console.log(`\n[plan] written to ${cfg.planFile}\n`);
+    planCandidates = await runPlanAgents(cfg, phases, research);
+    if (cfg.planAgents === 1) {
+      plan = planCandidates[0];
+    }
+    phase = phaseAfterPlan(cfg);
+    checkpoint(phase, currentRound, verdict);
+  }
+
+  if (phase === "refinements") {
+    planCandidates ??= readPlanCandidates(cfg);
+    console.log(`\n[refinements] merging ${planCandidates.length} candidate plan(s)`);
+    plan = await phases.refinements(cfg, planCandidates, research);
+    console.log(`\n[refinements] final plan written to ${cfg.planFile}\n`);
+    phase = phaseAfterRefinements(cfg);
+    checkpoint(phase, currentRound, verdict);
+  }
+
+  if (phase === "approve_plan") {
+    if (!plan) {
+      plan = readResumeArtifact(cfg, cfg.planFile, "plan");
+    }
+    checkpoint("approve_plan", currentRound, verdict);
+    plan = await phases.approvePlan(cfg, plan);
+    writeFileSync(resolve(cfg.cwd, cfg.planFile), plan, "utf-8");
+    console.log(`\n[approval] plan approved\n`);
     phase = "execute";
     checkpoint(phase, currentRound, verdict);
   }

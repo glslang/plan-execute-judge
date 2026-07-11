@@ -10,16 +10,18 @@ import {
   parseEffort,
   parseList,
   parseMaxRounds,
+  parsePositiveIntegerEnv,
   researchPreflight,
 } from "./preflight.js";
 import { loadPipelineState, ResumeStateError } from "./state.js";
+import { PlanApprovalError } from "./approval.js";
 
 async function main() {
   const task = process.argv.slice(2).join(" ");
   if (!task) {
     console.error('Usage: npm start -- "<task description>"');
     console.error("Env: PEJ_TARGET_CWD (target repo), PEJ_BACKEND, PEJ_MODEL, PEJ_EFFORT, PEJ_RESUME,");
-    console.error("     PEJ_MAX_ROUNDS,");
+    console.error("     PEJ_MAX_ROUNDS, PEJ_RESEARCH_AGENTS, PEJ_PLAN_AGENTS, PEJ_PLAN_APPROVAL,");
     console.error("     PEJ_RESEARCH_SOURCES (urls, repos, docs -- comma-separated),");
     console.error("     PEJ_RESEARCH_NOTES (your own research files -- comma-separated)");
     process.exit(1);
@@ -33,6 +35,15 @@ async function main() {
     savedState?.research ??
     researchPreflight(parseList(process.env.PEJ_RESEARCH_SOURCES), parseList(process.env.PEJ_RESEARCH_NOTES));
   const baselineRef = savedState ? savedState.baselineRef : gitPreflight(cwd, { allowDirty: resume });
+  const researchAgents =
+    savedState?.researchAgents ??
+    parsePositiveIntegerEnv(process.env.PEJ_RESEARCH_AGENTS, DEFAULT_CONFIG.researchAgents, "PEJ_RESEARCH_AGENTS");
+  const planAgents =
+    savedState?.planAgents ??
+    parsePositiveIntegerEnv(process.env.PEJ_PLAN_AGENTS, DEFAULT_CONFIG.planAgents, "PEJ_PLAN_AGENTS");
+  const planApproval =
+    savedState?.planApproval ??
+    parseBooleanEnv(process.env.PEJ_PLAN_APPROVAL, DEFAULT_CONFIG.planApproval, "PEJ_PLAN_APPROVAL");
 
   const cfg: PipelineConfig = {
     ...DEFAULT_CONFIG,
@@ -42,6 +53,9 @@ async function main() {
     backend,
     research,
     researchArtifact: Boolean(research) || (resume && existsSync(resolve(cwd, DEFAULT_CONFIG.researchFile))),
+    researchAgents,
+    planAgents,
+    planApproval,
     model: process.env.PEJ_MODEL ?? DEFAULT_MODELS[backend],
     effort: parseEffort(process.env.PEJ_EFFORT, DEFAULT_CONFIG.effort),
     maxRounds: parseMaxRounds(process.env.PEJ_MAX_ROUNDS, DEFAULT_CONFIG.maxRounds),
@@ -60,7 +74,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  if (err instanceof CliValidationError || err instanceof ResumeStateError) {
+  if (err instanceof CliValidationError || err instanceof ResumeStateError || err instanceof PlanApprovalError) {
     console.error(err.message);
   } else {
     console.error(err);

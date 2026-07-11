@@ -16,20 +16,24 @@ function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
 }
 
-export function parseMaxRounds(raw: string | undefined, defaultValue: number): number {
+export function parsePositiveIntegerEnv(raw: string | undefined, defaultValue: number, name: string): number {
   if (raw === undefined) return defaultValue;
 
   const value = raw.trim();
   if (!/^[1-9]\d*$/.test(value)) {
-    throw new CliValidationError(`PEJ_MAX_ROUNDS must be a positive integer, got ${JSON.stringify(raw)}`);
+    throw new CliValidationError(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
   }
 
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed)) {
-    throw new CliValidationError(`PEJ_MAX_ROUNDS is too large, got ${JSON.stringify(raw)}`);
+    throw new CliValidationError(`${name} is too large, got ${JSON.stringify(raw)}`);
   }
 
   return parsed;
+}
+
+export function parseMaxRounds(raw: string | undefined, defaultValue: number): number {
+  return parsePositiveIntegerEnv(raw, defaultValue, "PEJ_MAX_ROUNDS");
 }
 
 export function parseBooleanEnv(raw: string | undefined, defaultValue: boolean, name: string): boolean {

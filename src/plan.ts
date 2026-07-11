@@ -7,6 +7,12 @@ import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
 import { runCodexPhase } from "./codex.js";
 
+export interface PlanRunOptions {
+  agentIndex?: number;
+  agentCount?: number;
+  outputFile?: string;
+}
+
 /**
  * Read-only research + plan generation. Runs under `permissionMode:
  * "dontAsk"`, which denies any tool not in `allowedTools` instead of
@@ -15,8 +21,12 @@ import { runCodexPhase } from "./codex.js";
  * allowlist; Bash stays available for inspection but is vetted by a
  * PreToolUse hook that denies mutating commands (see permissions.ts).
  */
-export async function runPlan(cfg: PipelineConfig, research?: string): Promise<string> {
-  const inputData = serializePromptData({ task: cfg.task, research: research ?? null });
+export async function runPlan(cfg: PipelineConfig, research?: string, opts: PlanRunOptions = {}): Promise<string> {
+  const agentIndex = opts.agentIndex ?? 1;
+  const agentCount = opts.agentCount ?? 1;
+  const label = agentCount > 1 ? `plan ${agentIndex}/${agentCount}` : "plan";
+  const outputFile = opts.outputFile ?? cfg.planFile;
+  const inputData = serializePromptData({ task: cfg.task, research: research ?? null, agentIndex, agentCount });
   const prompt = `
 You are the planning phase of a plan -> execute -> judge pipeline. You will not
 implement anything; a separate phase does that from what you write here. That
@@ -31,6 +41,11 @@ brief compiled for this task from sources the user supplied: ground the plan
 in it -- respect the API signatures, constraints, and pitfalls it records,
 and carry any of its details a step depends on into the plan text itself,
 since the implementer never sees the brief.
+
+If "agentCount" is greater than 1, you are one of several independent planning
+agents. Produce the strongest complete plan you can; do not try to mimic what
+the other agents might write. A separate refinements phase will merge the
+candidate plans.
 
 Explore the codebase as needed, then write a plan with:
 1. A numbered list of discrete steps. Plan the smallest change that satisfies
@@ -52,7 +67,7 @@ Output the plan itself as your final message -- no preamble, no "here's the plan
   let planText: string;
   if (cfg.backend === "codex") {
     planText = await runCodexPhase({
-      label: "plan",
+      label,
       prompt,
       model: cfg.planModel ?? cfg.model,
       effort: cfg.effort,
@@ -71,12 +86,12 @@ Output the plan itself as your final message -- no preamble, no "here's the plan
         allowedTools: cfg.readOnlyAllowedTools,
         settingSources: cfg.settingSources,
         maxTurns: cfg.maxTurns.plan,
-        hooks: { PreToolUse: readOnlyBashHook("plan") },
+        hooks: { PreToolUse: readOnlyBashHook(label) },
       },
     });
-    const result = await runPhase(stream, { label: "plan", verbose: true });
+    const result = await runPhase(stream, { label, verbose: true });
     planText = result.result;
   }
-  writeFileSync(resolve(cfg.cwd, cfg.planFile), planText, "utf-8");
+  writeFileSync(resolve(cfg.cwd, outputFile), planText, "utf-8");
   return planText;
 }

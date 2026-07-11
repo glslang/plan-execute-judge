@@ -12,7 +12,7 @@ export class ResumeStateError extends Error {
 
 export const PIPELINE_STATE_VERSION = 1;
 
-export const PipelinePhaseSchema = z.enum(["research", "plan", "execute", "judge"]);
+export const PipelinePhaseSchema = z.enum(["research", "plan", "refinements", "approve_plan", "execute", "judge"]);
 export type PipelinePhase = z.infer<typeof PipelinePhaseSchema>;
 
 const ResearchConfigSchema: z.ZodType<ResearchConfig> = z.object({
@@ -28,6 +28,9 @@ export const PipelineStateSchema = z.object({
   baselineRef: z.string().optional(),
   researchEnabled: z.boolean(),
   research: ResearchConfigSchema.optional(),
+  researchAgents: z.number().int().positive().default(1),
+  planAgents: z.number().int().positive().default(1),
+  planApproval: z.boolean().default(false),
   planFile: z.string(),
   researchFile: z.string(),
   lastVerdict: VerdictSchema.optional(),

@@ -8,19 +8,28 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 Generic plan -> execute -> judge pipeline for the Claude Agent SDK or Codex SDK
-(TypeScript), with an optional deep-research phase in front. Fresh agent runs with
-real control flow. The research brief, the plan text, and a typed verdict are
-the only data crossing phase boundaries -- never a conversation transcript.
-`RESEARCH.md` and `PLAN.md` are written as human-readable artifacts of the run.
+(TypeScript), with an optional deep-research phase in front. Research and
+planning can fan out across multiple independent agents; when multiple plans
+are produced, a `refinements` phase merges them into one final plan. Fresh
+agent runs with real control flow. The research brief, the plan text, and a
+typed verdict are the only data crossing phase boundaries -- never a
+conversation transcript. `RESEARCH.md` and `PLAN.md` are written as
+human-readable artifacts of the run.
 
 ```
 task ─┬─> [research, optional] ingests PDFs, web pages, git repos + your own
       │       notes ─> research brief (saved to RESEARCH.md)
       │                     │
       v                     v
-      plan (read-only research) ─> plan text (saved to PLAN.md)
+      plan (read-only research) ─> candidate plan(s)
                                           │
             ┌─────────────────────────────┘
+            v
+      [refinements, when needed] merge candidate plans -> PLAN.md
+            |
+            v
+      [approval, optional] user verifies/agrees to PLAN.md
+            |
             v
       execute (acceptEdits -- implements the plan, leaves changes uncommitted)
             │
@@ -111,6 +120,9 @@ for you to review -- the pipeline never commits.
 | `PEJ_MODEL`            | Model id for every phase                                         | backend-specific  |
 | `PEJ_EFFORT`           | Reasoning effort (`low`, `medium`, `high`, `xhigh`; Claude also supports `max`) | `high` |
 | `PEJ_RESUME`           | Resume an interrupted run from `.pej-state.json`/artifacts       | `0`               |
+| `PEJ_RESEARCH_AGENTS`  | Independent research agents when research is enabled             | `1`               |
+| `PEJ_PLAN_AGENTS`      | Independent planning agents before `refinements`                 | `1`               |
+| `PEJ_PLAN_APPROVAL`    | Require a human to approve `PLAN.md` before execute              | `0`               |
 | `PEJ_MAX_ROUNDS`       | Execute -> judge cycles before giving up                         | `3`               |
 | `PEJ_RESEARCH_SOURCES` | Comma-separated research sources (URLs, git repos, PDFs/docs)    | unset             |
 | `PEJ_RESEARCH_NOTES`   | Comma-separated files of research you've already done            | unset             |
@@ -128,6 +140,27 @@ workspace-write sandbox, and judging in the read-only sandbox with the verdict
 schema supplied as structured output. Each phase starts a fresh Codex thread,
 matching the pipeline's no-transcript-sharing design.
 
+### Multi-agent research, planning, and refinements
+
+Set `PEJ_RESEARCH_AGENTS` and/or `PEJ_PLAN_AGENTS` above `1` to run
+independent read-only agents for those phases:
+
+```sh
+PEJ_RESEARCH_AGENTS=2 PEJ_PLAN_AGENTS=3 \
+npm start -- "implement the task"
+```
+
+Multiple research agents write `RESEARCH.agent-1.md`, `RESEARCH.agent-2.md`,
+and so on, then the pipeline writes a combined `RESEARCH.md` for planning.
+Multiple planning agents write `PLAN.agent-1.md`, `PLAN.agent-2.md`, and so on.
+The `refinements` phase then compares those candidate plans, resolves
+conflicts, and writes the final `PLAN.md` consumed by execute and judge.
+
+Set `PEJ_PLAN_APPROVAL=1` to pause after the final plan is written. The CLI
+prints the plan, waits for a human to type `yes`, and rereads `PLAN.md` before
+execute so you can edit the plan during the pause. This requires interactive
+stdin; in noninteractive CI it fails instead of executing an unapproved plan.
+
 ### Resuming an interrupted run
 
 Each run writes `.pej-state.json` before and after every phase. If a phase
@@ -139,17 +172,17 @@ PEJ_RESUME=1 PEJ_BACKEND=codex PEJ_MODEL=gpt-5.6-sol PEJ_EFFORT=xhigh \
 npm start -- "implement the task"
 ```
 
-Resume mode skips completed phases, reuses `PLAN.md` and `RESEARCH.md` when
-present, and allows the dirty working tree left by a partial execute. If
-`execute` failed, it runs execute again against the partial tree. If `execute`
-finished and `judge` failed, it resumes at judge instead of rerunning execute.
-On a successful pass, the checkpoint is removed. For older runs that failed
-before `.pej-state.json` existed, resume can still reuse `PLAN.md` and start at
-execute round 1.
+Resume mode skips completed phases, reuses `PLAN.md`, `RESEARCH.md`, and any
+multi-agent candidate artifacts when present, and allows the dirty working tree
+left by a partial execute. If `execute` failed, it runs execute again against
+the partial tree. If `execute` finished and `judge` failed, it resumes at judge
+instead of rerunning execute. On a successful pass, the checkpoint is removed.
+For older runs that failed before `.pej-state.json` existed, resume can still
+reuse `PLAN.md` and start at approval or execute.
 
-Per-phase overrides (`researchModel` / `planModel` / `executeModel` /
-`judgeModel`, `maxTurns`, allowed tools) live in `src/types.ts` if you're
-forking the config.
+Per-phase overrides (`researchModel` / `planModel` / `refinementsModel` /
+`executeModel` / `judgeModel`, `maxTurns`, allowed tools) live in
+`src/types.ts` if you're forking the config.
 
 ### The optional research phase
 
@@ -293,13 +326,14 @@ meta-key zod emits, so `judge.ts` strips it (and a unit test pins that).
 **The backend defaults to Claude with `claude-opus-4-8` at `high` effort.** Set
 `PEJ_BACKEND=codex` to use Codex (default model `gpt-5.6-sol`), with global
 overrides via `PEJ_MODEL` and `PEJ_EFFORT`, and independent model overrides
-(`researchModel` / `planModel` / `executeModel` / `judgeModel`) if you want a
-cheaper model judging or planning than the one doing the implementation work.
+(`researchModel` / `planModel` / `refinementsModel` / `executeModel` /
+`judgeModel`) if you want a cheaper model judging or planning than the one
+doing the implementation work.
 
-**Every phase has a turn ceiling** (`maxTurns` in `types.ts`: research 128,
-plan 64, execute 256, judge 64). A phase that hits it ends with `error_max_turns`,
-which `runPhase` turns into a pipeline-stopping error instead of a silent
-partial result.
+**Every Claude phase has a turn ceiling** (`maxTurns` in `types.ts`: research
+128, plan 64, refinements 64, execute 256, judge 64). A phase that hits it ends
+with `error_max_turns`, which `runPhase` turns into a pipeline-stopping error
+instead of a silent partial result.
 
 **`settingSources` defaults to `[]`.** No CLAUDE.md, no project hooks, no
 skills get loaded for any phase -- each starts genuinely clean. Set it to
@@ -311,8 +345,9 @@ execute to pick up your repo's conventions.
 `npm test` compiles and runs the unit tests with node's built-in runner --
 no test dependencies. The orchestrator's phases are injectable
 (`runPipeline(cfg, phases)`), so the retry loop is tested with fakes: pass on
-round one, fail -> fix-up -> pass (asserting the failed verdict reaches the
-next execute call), giving up at `maxRounds`, and rejecting `maxRounds < 1`.
+round one, multi-agent research and planning, refinements, approval, fail ->
+fix-up -> pass (asserting the failed verdict reaches the next execute call),
+giving up at `maxRounds`, and rejecting invalid round/agent counts.
 `permissions.test.ts` pins the vetting policies with allow/deny cases,
 including the research policy's scratch-dir-scoped clone/download exceptions.
 `preflight.test.ts` covers CLI validation, clean committed repos, dirty tracked
@@ -342,10 +377,13 @@ src/
   permissions.ts       Bash-command vetting hooks: read-only, execute, and research policies
   prompt.ts            serialized prompt data helper
   research.ts          optional deep research over sources + user notes -> brief (RESEARCH.md)
-  plan.ts              read-only research -> plan text (also saved to PLAN.md)
+  plan.ts              read-only research -> plan candidate(s)
+  refinements.ts       merges multiple plan candidates into the final PLAN.md
+  approval.ts          optional human approval gate before execute
   execute.ts           implements the plan (or fixes gaps from a prior verdict)
   judge.ts             reviews the tree against plan + task, returns a typed Verdict
-  orchestrator.ts      optional research, then execute -> judge loop bounded by maxRounds
+  orchestrator.ts      research/plan fan-out, refinements, approval, execute -> judge loop
+  state.ts             resumable phase checkpoint schema and file helpers
   preflight.ts         CLI validation: git preflight, clean-tree check, env parsing
   index.ts             CLI entry: baseline capture, env overrides
   util.ts              drains a query() stream, throws on non-"success" results
