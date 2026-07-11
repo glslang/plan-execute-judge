@@ -6,6 +6,7 @@ import type { PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { researchBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
+import { runCodexPhase } from "./codex.js";
 
 /**
  * Optional deep-research phase, run before planning when cfg.research is set.
@@ -36,6 +37,22 @@ export async function runResearch(cfg: PipelineConfig): Promise<string> {
       scratchDir,
     });
 
+    const sourceAccess =
+      cfg.backend === "codex"
+        ? `- Local files (PDFs, markdown, and other documents) with the available read-only shell and file tools.
+- Web pages, repository URLs, and remote documents with web search and direct browsing. The Codex phase runs in a read-only sandbox, so do not try to clone or download them.`
+        : `- Local files (PDFs, markdown, anything readable) with the Read tool -- it
+  handles PDF paths directly.
+- Web pages with WebFetch. Use WebSearch when a source needs surrounding
+  context or leaves a load-bearing question open.
+- git/GitHub repository URLs by cloning into the scratch directory:
+  \`git clone --depth=1 <url> <scratchDir>/<name>\` -- then explore the clone
+  with Read/Grep/Glob. Always pass an explicit destination under
+  "scratchDir"; clones anywhere else are denied.
+- Remote PDFs and other documents by downloading into the scratch directory:
+  \`curl -L -o <scratchDir>/<name> <url>\` -- then Read the downloaded file.
+  Downloads anywhere else are denied.`;
+
     const prompt = `
 You are the research phase of a research -> plan -> execute -> judge pipeline.
 You will not plan or implement anything; your job is to produce a research
@@ -48,17 +65,7 @@ ${inputData}
 
 Use the "task" field as the task under research. Ingest every entry in
 "sources":
-- Local files (PDFs, markdown, anything readable) with the Read tool -- it
-  handles PDF paths directly.
-- Web pages with WebFetch. Use WebSearch when a source needs surrounding
-  context or leaves a load-bearing question open.
-- git/GitHub repository URLs by cloning into the scratch directory:
-  \`git clone --depth=1 <url> <scratchDir>/<name>\` -- then explore the clone
-  with Read/Grep/Glob. Always pass an explicit destination under
-  "scratchDir"; clones anywhere else are denied.
-- Remote PDFs and other documents by downloading into the scratch directory:
-  \`curl -L -o <scratchDir>/<name> <url>\` -- then Read the downloaded file.
-  Downloads anywhere else are denied.
+${sourceAccess}
 
 "userResearch" lists files of research the user has already done. Read them
 first and treat them as trusted input: build on them, verify and sharpen what
@@ -82,21 +89,36 @@ advice a planner would already know. Output the brief itself as your final
 message -- no preamble.
 `.trim();
 
-    const stream = query({
-      prompt,
-      options: {
+    let brief: string;
+    if (cfg.backend === "codex") {
+      brief = await runCodexPhase({
+        label: "research",
+        prompt,
         model: cfg.researchModel ?? cfg.model,
+        effort: cfg.effort,
         cwd: cfg.cwd,
-        permissionMode: "dontAsk",
-        allowedTools: cfg.researchAllowedTools,
-        settingSources: cfg.settingSources,
-        maxTurns: cfg.maxTurns.research,
-        hooks: { PreToolUse: researchBashHook("research", scratchDir) },
-      },
-    });
-
-    const result = await runPhase(stream, { label: "research", verbose: true });
-    const brief = result.result;
+        sandboxMode: "read-only",
+        networkAccessEnabled: true,
+        webSearchEnabled: true,
+        verbose: true,
+      });
+    } else {
+      const stream = query({
+        prompt,
+        options: {
+          model: cfg.researchModel ?? cfg.model,
+          effort: cfg.effort,
+          cwd: cfg.cwd,
+          permissionMode: "dontAsk",
+          allowedTools: cfg.researchAllowedTools,
+          settingSources: cfg.settingSources,
+          maxTurns: cfg.maxTurns.research,
+          hooks: { PreToolUse: researchBashHook("research", scratchDir) },
+        },
+      });
+      const result = await runPhase(stream, { label: "research", verbose: true });
+      brief = result.result;
+    }
     writeFileSync(resolve(cfg.cwd, cfg.researchFile), brief, "utf-8");
     return brief;
   } finally {

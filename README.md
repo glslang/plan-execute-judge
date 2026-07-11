@@ -4,10 +4,11 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.9-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Claude Agent SDK](https://img.shields.io/badge/Claude%20Agent%20SDK-0.3-D97757?logo=anthropic&logoColor=white)](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)
+[![Codex SDK](https://img.shields.io/badge/Codex%20SDK-0.144-111827?logo=openai&logoColor=white)](https://www.npmjs.com/package/@openai/codex-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-Generic plan -> execute -> judge pipeline on the Claude Agent SDK (TypeScript),
-with an optional deep-research phase in front. Chained `query()` calls with
+Generic plan -> execute -> judge pipeline for the Claude Agent SDK or Codex SDK
+(TypeScript), with an optional deep-research phase in front. Fresh agent runs with
 real control flow. The research brief, the plan text, and a typed verdict are
 the only data crossing phase boundaries -- never a conversation transcript.
 `RESEARCH.md` and `PLAN.md` are written as human-readable artifacts of the run.
@@ -38,13 +39,16 @@ npm test          # build + unit tests (needs Node >= 22.9)
 npm run build:bun # bundled Bun build to dist-bun/ (requires Bun)
 ```
 
-Authentication, in order of least effort:
+The default Claude backend authenticates, in order of least effort:
 
 - **Machine already logged into Claude Code** -- nothing to do; the Agent SDK
   picks up the same credentials.
 - **API key in the environment** -- `export ANTHROPIC_API_KEY=sk-ant-...`
 - **API key in a file** -- `cp .env.example .env` and set the key there; the
   start script loads it via Node's `--env-file-if-exists`.
+
+For the Codex backend, either sign in once with `codex login` or provide
+`CODEX_API_KEY` in the environment or `.env`.
 
 ## Usage
 
@@ -68,7 +72,9 @@ or, from this repo's own directory:
 
 ```sh
 PEJ_TARGET_CWD=~/code/my-service \
+PEJ_BACKEND=claude \
 PEJ_MODEL=claude-sonnet-5 \
+PEJ_EFFORT=high \
 PEJ_MAX_ROUNDS=2 \
 npm start -- "add rate limiting to the /upload endpoint, 10 req/min per IP"
 ```
@@ -101,10 +107,25 @@ for you to review -- the pipeline never commits.
 | Env var                | Meaning                                                          | Default           |
 | ---------------------- | ---------------------------------------------------------------- | ----------------- |
 | `PEJ_TARGET_CWD`       | Repo the pipeline works on                                       | current directory |
-| `PEJ_MODEL`            | Model for every phase                                            | `claude-opus-4-8` |
+| `PEJ_BACKEND`          | Agent runtime (`claude` or `codex`)                              | `claude`          |
+| `PEJ_MODEL`            | Model id for every phase                                         | backend-specific  |
+| `PEJ_EFFORT`           | Reasoning effort (`low`, `medium`, `high`, `xhigh`; Claude also supports `max`) | `high` |
 | `PEJ_MAX_ROUNDS`       | Execute -> judge cycles before giving up                         | `3`               |
 | `PEJ_RESEARCH_SOURCES` | Comma-separated research sources (URLs, git repos, PDFs/docs)    | unset             |
 | `PEJ_RESEARCH_NOTES`   | Comma-separated files of research you've already done            | unset             |
+
+The Claude model default remains `claude-opus-4-8`; Codex defaults to
+`gpt-5.6-sol`. Model ids are passed through to the selected SDK. For example:
+
+```sh
+PEJ_BACKEND=codex PEJ_MODEL=gpt-5.6-sol PEJ_EFFORT=xhigh \
+npm start -- "implement the task"
+```
+
+Codex runs research and planning in its read-only sandbox, execution in its
+workspace-write sandbox, and judging in the read-only sandbox with the verdict
+schema supplied as structured output. Each phase starts a fresh Codex thread,
+matching the pipeline's no-transcript-sharing design.
 
 Per-phase overrides (`researchModel` / `planModel` / `executeModel` /
 `judgeModel`, `maxTurns`, allowed tools) live in `src/types.ts` if you're
@@ -249,7 +270,9 @@ must include at least one gap. One sharp edge, found by live smoke test: the
 SDK silently drops `structured_output` if the schema carries the `$schema`
 meta-key zod emits, so `judge.ts` strips it (and a unit test pins that).
 
-**Everything defaults to `claude-opus-4-8`,** with independent overrides
+**The backend defaults to Claude with `claude-opus-4-8` at `high` effort.** Set
+`PEJ_BACKEND=codex` to use Codex (default model `gpt-5.6-sol`), with global
+overrides via `PEJ_MODEL` and `PEJ_EFFORT`, and independent model overrides
 (`researchModel` / `planModel` / `executeModel` / `judgeModel`) if you want a
 cheaper model judging or planning than the one doing the implementation work.
 

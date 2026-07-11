@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { ResearchConfig } from "./types.js";
+import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentBackend, ResearchConfig } from "./types.js";
 
 export class CliValidationError extends Error {
   constructor(message: string) {
@@ -29,6 +30,35 @@ export function parseMaxRounds(raw: string | undefined, defaultValue: number): n
   }
 
   return parsed;
+}
+
+const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly EffortLevel[];
+const AGENT_BACKENDS = ["claude", "codex"] as const satisfies readonly AgentBackend[];
+
+export function parseBackend(raw: string | undefined, defaultValue: AgentBackend): AgentBackend {
+  if (raw === undefined) return defaultValue;
+
+  const value = raw.trim().toLowerCase();
+  if (!AGENT_BACKENDS.some((backend) => backend === value)) {
+    throw new CliValidationError(
+      `PEJ_BACKEND must be one of ${AGENT_BACKENDS.join(", ")}, got ${JSON.stringify(raw)}`
+    );
+  }
+
+  return value as AgentBackend;
+}
+
+export function parseEffort(raw: string | undefined, defaultValue: EffortLevel): EffortLevel {
+  if (raw === undefined) return defaultValue;
+
+  const value = raw.trim().toLowerCase();
+  if (!EFFORT_LEVELS.some((level) => level === value)) {
+    throw new CliValidationError(
+      `PEJ_EFFORT must be one of ${EFFORT_LEVELS.join(", ")}, got ${JSON.stringify(raw)}`
+    );
+  }
+
+  return value as EffortLevel;
 }
 
 /** Splits a comma-separated env value into trimmed, non-empty entries. */

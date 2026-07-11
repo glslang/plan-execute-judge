@@ -3,6 +3,7 @@ import { pipelineArtifactFiles, type PipelineConfig, type Verdict } from "./type
 import { runPhase } from "./util.js";
 import { executeBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
+import { runCodexPhase } from "./codex.js";
 
 /**
  * Implements the plan. Started fresh each call (no `resume`), so a fix-up
@@ -39,10 +40,24 @@ Rules:
   code, satisfy its intent as closely as possible; do not invent new scope.
 `.trim();
 
+  if (cfg.backend === "codex") {
+    await runCodexPhase({
+      label: "execute",
+      prompt,
+      model: cfg.executeModel ?? cfg.model,
+      effort: cfg.effort,
+      cwd: cfg.cwd,
+      sandboxMode: "workspace-write",
+      verbose: true,
+    });
+    return;
+  }
+
   const stream = query({
     prompt,
     options: {
       model: cfg.executeModel ?? cfg.model,
+      effort: cfg.effort,
       cwd: cfg.cwd,
       permissionMode: "acceptEdits",
       allowedTools: cfg.executeAllowedTools,

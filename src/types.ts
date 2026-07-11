@@ -1,5 +1,12 @@
 import { z } from "zod";
-import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import type { EffortLevel, SettingSource } from "@anthropic-ai/claude-agent-sdk";
+
+export type AgentBackend = "claude" | "codex";
+
+export const DEFAULT_MODELS: Record<AgentBackend, string> = {
+  claude: "claude-opus-4-8",
+  codex: "gpt-5.6-sol",
+};
 
 /**
  * The judge's output. Kept intentionally narrow: a pass/fail plus a list of
@@ -80,8 +87,13 @@ export interface PipelineConfig {
    */
   research?: ResearchConfig;
 
+  /** Agent runtime used for every phase. */
+  backend: AgentBackend;
+
   /** Model id used for every phase. Override per-phase below if you want a cheaper judge. */
   model: string;
+  /** Reasoning effort used for every phase. */
+  effort: EffortLevel;
   researchModel?: string;
   planModel?: string;
   executeModel?: string;
@@ -113,27 +125,28 @@ export interface PipelineConfig {
   baselineRef?: string;
 
   /**
-   * Per-phase turn ceilings, so a wedged phase can't run forever. A phase
+   * Claude per-phase turn ceilings, so a wedged phase can't run forever. A phase
    * that hits its ceiling ends with subtype "error_max_turns", which
-   * runPhase turns into a pipeline-stopping error.
+   * runPhase turns into a pipeline-stopping error. The Codex SDK does not
+   * currently expose an equivalent per-thread turn ceiling.
    */
   maxTurns: { research: number; plan: number; execute: number; judge: number };
 
   /**
-   * Which filesystem config the SDK loads (CLAUDE.md, project hooks, skills).
+   * Which filesystem config the Claude SDK loads (CLAUDE.md, project hooks, skills).
    * Empty by default -- each phase starts from a clean slate. Set to ['project']
    * if you want the executor to see your repo's CLAUDE.md conventions.
    */
   settingSources: SettingSource[];
 
-  /** Tools the execute phase may use freely (edits are auto-approved in that phase; see execute.ts). */
+  /** Claude tools the execute phase may use freely (edits are auto-approved; see execute.ts). */
   executeAllowedTools: string[];
 
-  /** Tools the plan/judge phases may use for read-only research and verification. */
+  /** Claude tools the plan/judge phases may use for read-only research and verification. */
   readOnlyAllowedTools: string[];
 
   /**
-   * Tools for the research phase: the read-only set plus web access. Its Bash
+   * Claude tools for the research phase: the read-only set plus web access. Its Bash
    * is vetted by a research-specific hook that additionally allows cloning
    * and downloading into a scratch directory (see permissions.ts).
    */
@@ -153,7 +166,9 @@ export function pipelineArtifactFiles(
 }
 
 export const DEFAULT_CONFIG: Omit<PipelineConfig, "task" | "cwd"> = {
-  model: "claude-opus-4-8",
+  backend: "claude",
+  model: DEFAULT_MODELS.claude,
+  effort: "high",
   planFile: "PLAN.md",
   researchFile: "RESEARCH.md",
   maxRounds: 3,

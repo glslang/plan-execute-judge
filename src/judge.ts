@@ -4,6 +4,7 @@ import { pipelineArtifactFiles, VerdictSchema, type Verdict, type PipelineConfig
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
+import { runCodexPhase } from "./codex.js";
 
 // zod v4 emits a top-level "$schema" meta-key that the SDK silently rejects:
 // the run succeeds but result.structured_output comes back undefined. Strip it.
@@ -63,10 +64,29 @@ a stated requirement. Each gap must be specific enough that a fresh
 implementer can act on it without re-reading the whole plan.
 `.trim();
 
+  if (cfg.backend === "codex") {
+    const response = await runCodexPhase({
+      label: "judge",
+      prompt,
+      model: cfg.judgeModel ?? cfg.model,
+      effort: cfg.effort,
+      cwd: cfg.cwd,
+      sandboxMode: "read-only",
+      outputSchema: verdictJsonSchema,
+      verbose: true,
+    });
+    try {
+      return VerdictSchema.parse(JSON.parse(response));
+    } catch (err) {
+      throw new Error("Codex judge returned invalid structured output", { cause: err });
+    }
+  }
+
   const stream = query({
     prompt,
     options: {
       model: cfg.judgeModel ?? cfg.model,
+      effort: cfg.effort,
       cwd: cfg.cwd,
       permissionMode: "dontAsk",
       allowedTools: cfg.readOnlyAllowedTools,

@@ -5,6 +5,7 @@ import type { PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
+import { runCodexPhase } from "./codex.js";
 
 /**
  * Read-only research + plan generation. Runs under `permissionMode:
@@ -48,21 +49,34 @@ pipeline reviews the uncommitted working tree.
 Output the plan itself as your final message -- no preamble, no "here's the plan:".
 `.trim();
 
-  const stream = query({
-    prompt,
-    options: {
+  let planText: string;
+  if (cfg.backend === "codex") {
+    planText = await runCodexPhase({
+      label: "plan",
+      prompt,
       model: cfg.planModel ?? cfg.model,
+      effort: cfg.effort,
       cwd: cfg.cwd,
-      permissionMode: "dontAsk",
-      allowedTools: cfg.readOnlyAllowedTools,
-      settingSources: cfg.settingSources,
-      maxTurns: cfg.maxTurns.plan,
-      hooks: { PreToolUse: readOnlyBashHook("plan") },
-    },
-  });
-
-  const result = await runPhase(stream, { label: "plan", verbose: true });
-  const planText = result.result;
+      sandboxMode: "read-only",
+      verbose: true,
+    });
+  } else {
+    const stream = query({
+      prompt,
+      options: {
+        model: cfg.planModel ?? cfg.model,
+        effort: cfg.effort,
+        cwd: cfg.cwd,
+        permissionMode: "dontAsk",
+        allowedTools: cfg.readOnlyAllowedTools,
+        settingSources: cfg.settingSources,
+        maxTurns: cfg.maxTurns.plan,
+        hooks: { PreToolUse: readOnlyBashHook("plan") },
+      },
+    });
+    const result = await runPhase(stream, { label: "plan", verbose: true });
+    planText = result.result;
+  }
   writeFileSync(resolve(cfg.cwd, cfg.planFile), planText, "utf-8");
   return planText;
 }
