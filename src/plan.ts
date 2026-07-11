@@ -73,6 +73,7 @@ Output the plan itself as your final message -- no preamble, no "here's the plan
       effort: cfg.effort,
       cwd: cfg.cwd,
       sandboxMode: "read-only",
+      timeoutMs: cfg.codexPhaseTimeoutMs,
       verbose: true,
     });
   } else {

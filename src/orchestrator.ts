@@ -15,6 +15,7 @@ import { runJudge } from "./judge.js";
 import {
   clearPipelineState,
   loadPipelineState,
+  PIPELINE_STATE_VERSION,
   ResumeStateError,
   savePipelineState,
   type PipelinePhase,
@@ -98,10 +99,6 @@ function phaseAfterRefinements(cfg: PipelineConfig): PipelinePhase {
   return cfg.planApproval ? "approve_plan" : "execute";
 }
 
-function fallbackPlanPhase(cfg: PipelineConfig): PipelinePhase {
-  return cfg.planApproval ? "approve_plan" : "execute";
-}
-
 function stateFor(
   cfg: PipelineConfig,
   phase: PipelinePhase,
@@ -110,7 +107,7 @@ function stateFor(
   researchEnabled: boolean
 ): PipelineState {
   return {
-    version: 1,
+    version: PIPELINE_STATE_VERSION,
     task: cfg.task,
     phase,
     round,
@@ -195,19 +192,12 @@ export async function runPipeline(
   const savedState = cfg.resume ? loadPipelineState(cfg.cwd, cfg.stateFile) : undefined;
   if (savedState) validateResumeState(cfg, savedState);
 
-  const fallbackPlanExists = cfg.resume && !savedState && existsSync(resolve(cfg.cwd, cfg.planFile));
-  const fallbackResearchExists = Boolean(
-    cfg.resume && !savedState && !fallbackPlanExists && cfg.research && existsSync(resolve(cfg.cwd, cfg.researchFile))
-  );
-  if (cfg.resume && !savedState && !fallbackPlanExists && !fallbackResearchExists) {
-    throw new ResumeStateError(
-      `Cannot resume: no ${cfg.stateFile} checkpoint or ${cfg.planFile} artifact found in ${cfg.cwd}.`
-    );
+  if (cfg.resume && !savedState) {
+    throw new ResumeStateError(`Cannot resume: no ${cfg.stateFile} checkpoint found in ${cfg.cwd}.`);
   }
 
   const researchEnabled = savedState?.researchEnabled ?? Boolean(cfg.research || cfg.researchArtifact);
-  let phase: PipelinePhase =
-    savedState?.phase ?? (fallbackPlanExists ? fallbackPlanPhase(cfg) : fallbackResearchExists ? "plan" : initialPhase(cfg));
+  let phase: PipelinePhase = savedState?.phase ?? initialPhase(cfg);
   let currentRound = savedState?.round ?? 1;
   let verdict = savedState?.lastVerdict;
 
@@ -217,10 +207,6 @@ export async function runPipeline(
 
   if (savedState) {
     console.log(`\n[resume] loaded ${cfg.stateFile}; continuing at ${phase} round ${currentRound}\n`);
-  } else if (fallbackPlanExists) {
-    console.log(`\n[resume] no checkpoint found; reusing ${cfg.planFile} and continuing at ${phase}\n`);
-  } else if (fallbackResearchExists) {
-    console.log(`\n[resume] no checkpoint found; reusing ${cfg.researchFile} and continuing at plan\n`);
   }
 
   if (researchEnabled && (phase === "plan" || phase === "refinements")) {

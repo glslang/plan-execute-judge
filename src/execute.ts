@@ -48,6 +48,7 @@ Rules:
       effort: cfg.effort,
       cwd: cfg.cwd,
       sandboxMode: "workspace-write",
+      timeoutMs: cfg.codexPhaseTimeoutMs,
       verbose: true,
     });
     return;

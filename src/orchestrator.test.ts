@@ -14,7 +14,7 @@ import {
   type Verdict,
 } from "./types.js";
 import { verdictJsonSchema } from "./judge.js";
-import { savePipelineState } from "./state.js";
+import { PIPELINE_STATE_VERSION, savePipelineState } from "./state.js";
 
 function makeCfg(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
   return { ...DEFAULT_CONFIG, task: "add a thing", cwd: makeTempDir(), ...overrides };
@@ -271,7 +271,7 @@ test("resumes at judge after execute completed", async () => {
   const cfg = makeCfg();
   writeFileSync(join(cfg.cwd, cfg.planFile), "THE PLAN", "utf-8");
   savePipelineState(cfg, {
-    version: 1,
+    version: PIPELINE_STATE_VERSION,
     task: cfg.task,
     phase: "judge",
     round: 1,
@@ -297,7 +297,7 @@ test("resumes at refinements with existing plan candidates", async () => {
   writeFileSync(join(cfg.cwd, planAgentFile(cfg, 1)), "THE PLAN 1", "utf-8");
   writeFileSync(join(cfg.cwd, planAgentFile(cfg, 2)), "THE PLAN 2", "utf-8");
   savePipelineState(cfg, {
-    version: 1,
+    version: PIPELINE_STATE_VERSION,
     task: cfg.task,
     phase: "refinements",
     round: 1,
@@ -319,16 +319,12 @@ test("resumes at refinements with existing plan candidates", async () => {
   assert.deepEqual(calls.executePlans, ["MERGED PLAN"]);
 });
 
-test("resumes from PLAN.md when no checkpoint exists", async () => {
+test("resume requires a checkpoint", async () => {
   const cfg = makeCfg({ resume: true });
   writeFileSync(join(cfg.cwd, cfg.planFile), "THE PLAN", "utf-8");
 
-  const { phases, calls } = makePhases([PASS]);
-  const result = await runPipeline(cfg, phases);
-
-  assert.equal(result.passed, true);
-  assert.deepEqual(calls.planResearch, []);
-  assert.deepEqual(calls.executePriorVerdicts, [undefined]);
+  const { phases } = makePhases([PASS]);
+  await assert.rejects(runPipeline(cfg, phases), /no \.pej-state\.json checkpoint/);
 });
 
 test("rejects a non-positive or non-integer maxRounds", async () => {

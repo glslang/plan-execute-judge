@@ -73,6 +73,7 @@ implementer can act on it without re-reading the whole plan.
       cwd: cfg.cwd,
       sandboxMode: "read-only",
       outputSchema: verdictJsonSchema,
+      timeoutMs: cfg.codexPhaseTimeoutMs,
       verbose: true,
     });
     try {
