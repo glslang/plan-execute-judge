@@ -1,11 +1,29 @@
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runPipeline, type PipelinePhases } from "./orchestrator.js";
 import { DEFAULT_CONFIG, pipelineArtifactFiles, VerdictSchema, type PipelineConfig, type Verdict } from "./types.js";
 import { verdictJsonSchema } from "./judge.js";
+import { savePipelineState } from "./state.js";
 
 function makeCfg(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
-  return { ...DEFAULT_CONFIG, task: "add a thing", cwd: ".", ...overrides };
+  return { ...DEFAULT_CONFIG, task: "add a thing", cwd: makeTempDir(), ...overrides };
+}
+
+const tempDirs: string[] = [];
+
+after(() => {
+  for (const dir of tempDirs) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function makeTempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "pej-orchestrator-"));
+  tempDirs.push(dir);
+  return dir;
 }
 
 const PASS: Verdict = { pass: true, summary: "all criteria met", gaps: [] };
@@ -30,12 +48,14 @@ function makePhases(verdicts: Verdict[]) {
   };
   let judgeCall = 0;
   const phases: PipelinePhases = {
-    research: async () => {
+    research: async (cfg) => {
       calls.researchCalls++;
+      writeFileSync(join(cfg.cwd, cfg.researchFile), "THE BRIEF", "utf-8");
       return "THE BRIEF";
     },
-    plan: async (_cfg, research) => {
+    plan: async (cfg, research) => {
       calls.planResearch.push(research);
+      writeFileSync(join(cfg.cwd, cfg.planFile), "THE PLAN", "utf-8");
       return "THE PLAN";
     },
     execute: async (_cfg, _plan, priorVerdict) => {
@@ -84,12 +104,15 @@ test("runs research before plan when configured and feeds the brief to plan", as
 });
 
 test("pipelineArtifactFiles reserves the research artifact only when research is configured", () => {
-  const base = { planFile: "PLAN.md", researchFile: "RESEARCH.md" };
-  assert.deepEqual(pipelineArtifactFiles({ ...base, research: undefined }), ["PLAN.md"]);
-  assert.deepEqual(pipelineArtifactFiles({ ...base, research: { sources: [], userResearch: ["notes.md"] } }), [
+  const base = { planFile: "PLAN.md", researchFile: "RESEARCH.md", stateFile: ".pej-state.json" };
+  assert.deepEqual(pipelineArtifactFiles({ ...base, research: undefined, researchArtifact: false }), [
     "PLAN.md",
-    "RESEARCH.md",
+    ".pej-state.json",
   ]);
+  assert.deepEqual(
+    pipelineArtifactFiles({ ...base, research: { sources: [], userResearch: ["notes.md"] }, researchArtifact: true }),
+    ["PLAN.md", "RESEARCH.md", ".pej-state.json"]
+  );
 });
 
 test("feeds the failed verdict into the next execute round", async () => {
@@ -110,6 +133,69 @@ test("gives up after maxRounds and reports the last verdict", async () => {
   assert.equal(result.rounds, 2);
   assert.deepEqual(result.finalVerdict, FAIL);
   assert.equal(calls.executePriorVerdicts.length, 2);
+});
+
+test("resumes an interrupted execute round from the checkpoint", async () => {
+  const cfg = makeCfg();
+  const interrupted: PipelinePhases = {
+    research: async () => assert.fail("research should be skipped"),
+    plan: async (cfg) => {
+      writeFileSync(join(cfg.cwd, cfg.planFile), "THE PLAN", "utf-8");
+      return "THE PLAN";
+    },
+    execute: async () => {
+      throw new Error("usage limit");
+    },
+    judge: async () => assert.fail("judge should not run after execute fails"),
+  };
+
+  await assert.rejects(runPipeline(cfg, interrupted), /usage limit/);
+  const state = JSON.parse(readFileSync(join(cfg.cwd, cfg.stateFile), "utf-8"));
+  assert.equal(state.phase, "execute");
+  assert.equal(state.round, 1);
+
+  const { phases, calls } = makePhases([PASS]);
+  const result = await runPipeline({ ...cfg, resume: true }, phases);
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(calls.planResearch, []);
+  assert.deepEqual(calls.executePriorVerdicts, [undefined]);
+  assert.deepEqual(calls.judgePlans, ["THE PLAN"]);
+  assert.equal(existsSync(join(cfg.cwd, cfg.stateFile)), false);
+});
+
+test("resumes at judge after execute completed", async () => {
+  const cfg = makeCfg();
+  writeFileSync(join(cfg.cwd, cfg.planFile), "THE PLAN", "utf-8");
+  savePipelineState(cfg, {
+    version: 1,
+    task: cfg.task,
+    phase: "judge",
+    round: 1,
+    baselineRef: cfg.baselineRef,
+    researchEnabled: false,
+    planFile: cfg.planFile,
+    researchFile: cfg.researchFile,
+  });
+
+  const { phases, calls } = makePhases([PASS]);
+  const result = await runPipeline({ ...cfg, resume: true }, phases);
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(calls.executePriorVerdicts, []);
+  assert.deepEqual(calls.judgePlans, ["THE PLAN"]);
+});
+
+test("resumes from PLAN.md when no checkpoint exists", async () => {
+  const cfg = makeCfg({ resume: true });
+  writeFileSync(join(cfg.cwd, cfg.planFile), "THE PLAN", "utf-8");
+
+  const { phases, calls } = makePhases([PASS]);
+  const result = await runPipeline(cfg, phases);
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(calls.planResearch, []);
+  assert.deepEqual(calls.executePriorVerdicts, [undefined]);
 });
 
 test("rejects a non-positive or non-integer maxRounds", async () => {

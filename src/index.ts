@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_CONFIG, DEFAULT_MODELS, type PipelineConfig } from "./types.js";
 import { runPipeline } from "./orchestrator.js";
@@ -5,17 +6,19 @@ import {
   CliValidationError,
   gitPreflight,
   parseBackend,
+  parseBooleanEnv,
   parseEffort,
   parseList,
   parseMaxRounds,
   researchPreflight,
 } from "./preflight.js";
+import { loadPipelineState, ResumeStateError } from "./state.js";
 
 async function main() {
   const task = process.argv.slice(2).join(" ");
   if (!task) {
     console.error('Usage: npm start -- "<task description>"');
-    console.error("Env: PEJ_TARGET_CWD (target repo), PEJ_BACKEND, PEJ_MODEL, PEJ_EFFORT,");
+    console.error("Env: PEJ_TARGET_CWD (target repo), PEJ_BACKEND, PEJ_MODEL, PEJ_EFFORT, PEJ_RESUME,");
     console.error("     PEJ_MAX_ROUNDS,");
     console.error("     PEJ_RESEARCH_SOURCES (urls, repos, docs -- comma-separated),");
     console.error("     PEJ_RESEARCH_NOTES (your own research files -- comma-separated)");
@@ -23,21 +26,26 @@ async function main() {
   }
 
   const cwd = resolve(process.env.PEJ_TARGET_CWD ?? process.cwd());
+  const resume = parseBooleanEnv(process.env.PEJ_RESUME, DEFAULT_CONFIG.resume, "PEJ_RESUME");
   const backend = parseBackend(process.env.PEJ_BACKEND, DEFAULT_CONFIG.backend);
+  const savedState = resume ? loadPipelineState(cwd, DEFAULT_CONFIG.stateFile) : undefined;
+  const research =
+    savedState?.research ??
+    researchPreflight(parseList(process.env.PEJ_RESEARCH_SOURCES), parseList(process.env.PEJ_RESEARCH_NOTES));
+  const baselineRef = savedState ? savedState.baselineRef : gitPreflight(cwd, { allowDirty: resume });
 
   const cfg: PipelineConfig = {
     ...DEFAULT_CONFIG,
     task,
     cwd,
+    resume,
     backend,
-    research: researchPreflight(
-      parseList(process.env.PEJ_RESEARCH_SOURCES),
-      parseList(process.env.PEJ_RESEARCH_NOTES)
-    ),
+    research,
+    researchArtifact: Boolean(research) || (resume && existsSync(resolve(cwd, DEFAULT_CONFIG.researchFile))),
     model: process.env.PEJ_MODEL ?? DEFAULT_MODELS[backend],
     effort: parseEffort(process.env.PEJ_EFFORT, DEFAULT_CONFIG.effort),
     maxRounds: parseMaxRounds(process.env.PEJ_MAX_ROUNDS, DEFAULT_CONFIG.maxRounds),
-    baselineRef: gitPreflight(cwd),
+    baselineRef,
   };
 
   const result = await runPipeline(cfg);
@@ -52,7 +60,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  if (err instanceof CliValidationError) {
+  if (err instanceof CliValidationError || err instanceof ResumeStateError) {
     console.error(err.message);
   } else {
     console.error(err);

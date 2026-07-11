@@ -8,6 +8,7 @@ import {
   CliValidationError,
   gitPreflight,
   parseBackend,
+  parseBooleanEnv,
   parseEffort,
   parseList,
   parseMaxRounds,
@@ -64,6 +65,19 @@ test("parseMaxRounds accepts valid integers and defaults missing values", () => 
 test("parseMaxRounds rejects invalid values before the pipeline starts", () => {
   for (const raw of ["", " ", "0", "-1", "1.5", "NaN", "Infinity", "abc", "1e2"]) {
     assert.throws(() => parseMaxRounds(raw, 3), CliValidationError, `expected ${JSON.stringify(raw)} to be rejected`);
+  }
+});
+
+test("parseBooleanEnv accepts common boolean env values and defaults missing values", () => {
+  assert.equal(parseBooleanEnv(undefined, false, "PEJ_RESUME"), false);
+  assert.equal(parseBooleanEnv("1", false, "PEJ_RESUME"), true);
+  assert.equal(parseBooleanEnv(" true ", false, "PEJ_RESUME"), true);
+  assert.equal(parseBooleanEnv("NO", true, "PEJ_RESUME"), false);
+});
+
+test("parseBooleanEnv rejects ambiguous values", () => {
+  for (const raw of ["", " ", "maybe", "2"]) {
+    assert.throws(() => parseBooleanEnv(raw, false, "PEJ_RESUME"), CliValidationError);
   }
 });
 
@@ -165,6 +179,13 @@ test("gitPreflight rejects a dirty untracked file with a status excerpt", () => 
   const err = throwsCliValidation(() => gitPreflight(dir));
   assert.match(err.message, /Target repo must be clean/);
   assert.match(err.message, /\?\? untracked\.txt/);
+});
+
+test("gitPreflight can allow a dirty tree for resume", () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, "untracked.txt"), "new\n", "utf-8");
+
+  assert.equal(gitPreflight(dir, { allowDirty: true }), git(dir, ["rev-parse", "--verify", "HEAD"]));
 });
 
 test("gitPreflight skips the clean-tree check for a repo with no HEAD", () => {
