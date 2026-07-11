@@ -8,6 +8,12 @@ import { researchBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
 import { runCodexPhase } from "./codex.js";
 
+export interface ResearchRunOptions {
+  agentIndex?: number;
+  agentCount?: number;
+  outputFile?: string;
+}
+
 /**
  * Optional deep-research phase, run before planning when cfg.research is set.
  * Ingests the configured sources -- local documents (including PDFs, via the
@@ -23,10 +29,15 @@ import { runCodexPhase } from "./codex.js";
  * research Bash policy (permissions.ts), and it is deleted when the phase
  * ends -- the target tree stays untouched until execute.
  */
-export async function runResearch(cfg: PipelineConfig): Promise<string> {
+export async function runResearch(cfg: PipelineConfig, opts: ResearchRunOptions = {}): Promise<string> {
   if (!cfg.research) {
     throw new Error("runResearch called without cfg.research");
   }
+
+  const agentIndex = opts.agentIndex ?? 1;
+  const agentCount = opts.agentCount ?? 1;
+  const label = agentCount > 1 ? `research ${agentIndex}/${agentCount}` : "research";
+  const outputFile = opts.outputFile ?? cfg.researchFile;
 
   const scratchDir = mkdtempSync(join(tmpdir(), "pej-research-"));
   try {
@@ -35,6 +46,8 @@ export async function runResearch(cfg: PipelineConfig): Promise<string> {
       sources: cfg.research.sources,
       userResearch: cfg.research.userResearch,
       scratchDir,
+      agentIndex,
+      agentCount,
     });
 
     const sourceAccess =
@@ -67,6 +80,11 @@ Use the "task" field as the task under research. Ingest every entry in
 "sources":
 ${sourceAccess}
 
+If "agentCount" is greater than 1, you are one of several independent research
+agents. Prioritize accuracy and source-grounded findings over consensus. It is
+useful for different agents to notice different constraints, edge cases, and
+implementation pitfalls.
+
 "userResearch" lists files of research the user has already done. Read them
 first and treat them as trusted input: build on them, verify and sharpen what
 they claim against the sources, and do not spend effort re-deriving what they
@@ -92,7 +110,7 @@ message -- no preamble.
     let brief: string;
     if (cfg.backend === "codex") {
       brief = await runCodexPhase({
-        label: "research",
+        label,
         prompt,
         model: cfg.researchModel ?? cfg.model,
         effort: cfg.effort,
@@ -113,13 +131,13 @@ message -- no preamble.
           allowedTools: cfg.researchAllowedTools,
           settingSources: cfg.settingSources,
           maxTurns: cfg.maxTurns.research,
-          hooks: { PreToolUse: researchBashHook("research", scratchDir) },
+          hooks: { PreToolUse: researchBashHook(label, scratchDir) },
         },
       });
-      const result = await runPhase(stream, { label: "research", verbose: true });
+      const result = await runPhase(stream, { label, verbose: true });
       brief = result.result;
     }
-    writeFileSync(resolve(cfg.cwd, cfg.researchFile), brief, "utf-8");
+    writeFileSync(resolve(cfg.cwd, outputFile), brief, "utf-8");
     return brief;
   } finally {
     rmSync(scratchDir, { recursive: true, force: true });

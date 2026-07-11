@@ -100,6 +100,15 @@ export interface PipelineConfig {
    */
   researchArtifact: boolean;
 
+  /** Number of independent research agents to run when research is configured. */
+  researchAgents: number;
+
+  /** Number of independent planning agents to run before refinements merges their plans. */
+  planAgents: number;
+
+  /** Pause after the final plan is written and require a human approval before execute. */
+  planApproval: boolean;
+
   /** Agent runtime used for every phase. */
   backend: AgentBackend;
 
@@ -109,6 +118,7 @@ export interface PipelineConfig {
   effort: EffortLevel;
   researchModel?: string;
   planModel?: string;
+  refinementsModel?: string;
   executeModel?: string;
   judgeModel?: string;
 
@@ -149,7 +159,7 @@ export interface PipelineConfig {
    * runPhase turns into a pipeline-stopping error. The Codex SDK does not
    * currently expose an equivalent per-thread turn ceiling.
    */
-  maxTurns: { research: number; plan: number; execute: number; judge: number };
+  maxTurns: { research: number; plan: number; refinements: number; execute: number; judge: number };
 
   /**
    * Which filesystem config the Claude SDK loads (CLAUDE.md, project hooks, skills).
@@ -178,11 +188,39 @@ export interface PipelineConfig {
  * reserved when the research phase actually runs; otherwise a task that
  * legitimately touches a file with that name must stay in scope.
  */
+function agentArtifactFile(file: string, index: number): string {
+  const slashIndex = Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\"));
+  const dir = slashIndex === -1 ? "" : file.slice(0, slashIndex + 1);
+  const name = file.slice(slashIndex + 1);
+  const dotIndex = name.lastIndexOf(".");
+  if (dotIndex <= 0) return `${file}.agent-${index}`;
+  return `${dir}${name.slice(0, dotIndex)}.agent-${index}${name.slice(dotIndex)}`;
+}
+
+export function researchAgentFile(cfg: Pick<PipelineConfig, "researchFile">, index: number): string {
+  return agentArtifactFile(cfg.researchFile, index);
+}
+
+export function planAgentFile(cfg: Pick<PipelineConfig, "planFile">, index: number): string {
+  return agentArtifactFile(cfg.planFile, index);
+}
+
 export function pipelineArtifactFiles(
-  cfg: Pick<PipelineConfig, "research" | "researchArtifact" | "planFile" | "researchFile" | "stateFile">
+  cfg: Pick<
+    PipelineConfig,
+    "research" | "researchArtifact" | "researchAgents" | "planAgents" | "planFile" | "researchFile" | "stateFile"
+  >
 ): string[] {
   const files = [cfg.planFile, cfg.stateFile];
-  if (cfg.research || cfg.researchArtifact) files.splice(1, 0, cfg.researchFile);
+  if (cfg.planAgents > 1) {
+    for (let i = 1; i <= cfg.planAgents; i++) files.push(planAgentFile(cfg, i));
+  }
+  if (cfg.research || cfg.researchArtifact) {
+    files.splice(1, 0, cfg.researchFile);
+    if (cfg.researchAgents > 1) {
+      for (let i = 1; i <= cfg.researchAgents; i++) files.push(researchAgentFile(cfg, i));
+    }
+  }
   return files;
 }
 
@@ -192,11 +230,14 @@ export const DEFAULT_CONFIG: Omit<PipelineConfig, "task" | "cwd"> = {
   model: DEFAULT_MODELS.claude,
   effort: "high",
   researchArtifact: false,
+  researchAgents: 1,
+  planAgents: 1,
+  planApproval: false,
   planFile: "PLAN.md",
   researchFile: "RESEARCH.md",
   stateFile: ".pej-state.json",
   maxRounds: 3,
-  maxTurns: { research: 128, plan: 64, execute: 256, judge: 64 },
+  maxTurns: { research: 128, plan: 64, refinements: 64, execute: 256, judge: 64 },
   settingSources: [],
   executeAllowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
   readOnlyAllowedTools: ["Read", "Grep", "Glob", "Bash"],

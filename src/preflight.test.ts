@@ -12,6 +12,7 @@ import {
   parseEffort,
   parseList,
   parseMaxRounds,
+  parsePositiveIntegerEnv,
   researchPreflight,
 } from "./preflight.js";
 
@@ -60,6 +61,14 @@ test("parseMaxRounds accepts valid integers and defaults missing values", () => 
   assert.equal(parseMaxRounds(undefined, 3), 3);
   assert.equal(parseMaxRounds("1", 3), 1);
   assert.equal(parseMaxRounds(" 12 ", 3), 12);
+});
+
+test("parsePositiveIntegerEnv accepts valid integers and names validation errors", () => {
+  assert.equal(parsePositiveIntegerEnv(undefined, 1, "PEJ_PLAN_AGENTS"), 1);
+  assert.equal(parsePositiveIntegerEnv("2", 1, "PEJ_PLAN_AGENTS"), 2);
+
+  const err = throwsCliValidation(() => parsePositiveIntegerEnv("0", 1, "PEJ_PLAN_AGENTS"));
+  assert.match(err.message, /PEJ_PLAN_AGENTS/);
 });
 
 test("parseMaxRounds rejects invalid values before the pipeline starts", () => {
