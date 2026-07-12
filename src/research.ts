@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { PipelineConfig } from "./types.js";
+import { effectiveModel, type AgentBackend, type PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { researchBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
@@ -12,6 +12,7 @@ export interface ResearchRunOptions {
   agentIndex?: number;
   agentCount?: number;
   outputFile?: string;
+  backend?: AgentBackend;
 }
 
 /**
@@ -38,6 +39,7 @@ export async function runResearch(cfg: PipelineConfig, opts: ResearchRunOptions 
   const agentCount = opts.agentCount ?? 1;
   const label = agentCount > 1 ? `research ${agentIndex}/${agentCount}` : "research";
   const outputFile = opts.outputFile ?? cfg.researchFile;
+  const backend = opts.backend ?? cfg.backend;
 
   const scratchDir = mkdtempSync(join(tmpdir(), "pej-research-"));
   try {
@@ -51,7 +53,7 @@ export async function runResearch(cfg: PipelineConfig, opts: ResearchRunOptions 
     });
 
     const sourceAccess =
-      cfg.backend === "codex"
+      backend === "codex"
         ? `- Local files (PDFs, markdown, and other documents) with the available read-only shell and file tools.
 - Web pages, repository URLs, and remote documents with web search and direct browsing. The Codex phase runs in a read-only sandbox, so do not try to clone or download them.`
         : `- Local files (PDFs, markdown, anything readable) with the Read tool -- it
@@ -108,11 +110,11 @@ message -- no preamble.
 `.trim();
 
     let brief: string;
-    if (cfg.backend === "codex") {
+    if (backend === "codex") {
       brief = await runCodexPhase({
         label,
         prompt,
-        model: cfg.researchModel ?? cfg.model,
+        model: effectiveModel(cfg, backend, cfg.researchModel),
         effort: cfg.effort,
         cwd: cfg.cwd,
         sandboxMode: "read-only",
@@ -125,7 +127,7 @@ message -- no preamble.
       const stream = query({
         prompt,
         options: {
-          model: cfg.researchModel ?? cfg.model,
+          model: effectiveModel(cfg, backend, cfg.researchModel),
           effort: cfg.effort,
           cwd: cfg.cwd,
           permissionMode: "dontAsk",

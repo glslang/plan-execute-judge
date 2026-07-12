@@ -1,5 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { pipelineArtifactFiles, type PipelineConfig, type Verdict } from "./types.js";
+import { effectiveModel, pipelineArtifactFiles, type PipelineConfig, type Verdict } from "./types.js";
 import { runPhase } from "./util.js";
 import { executeBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
@@ -44,7 +44,7 @@ Rules:
     await runCodexPhase({
       label: "execute",
       prompt,
-      model: cfg.executeModel ?? cfg.model,
+      model: effectiveModel(cfg, cfg.backend, cfg.executeModel),
       effort: cfg.effort,
       cwd: cfg.cwd,
       sandboxMode: "workspace-write",
@@ -57,7 +57,7 @@ Rules:
   const stream = query({
     prompt,
     options: {
-      model: cfg.executeModel ?? cfg.model,
+      model: effectiveModel(cfg, cfg.backend, cfg.executeModel),
       effort: cfg.effort,
       cwd: cfg.cwd,
       permissionMode: "acceptEdits",
