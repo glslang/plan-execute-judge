@@ -390,6 +390,27 @@ test("rejects backend lists that do not repeat or match the agent count", async 
   );
 });
 
+test("rejects max effort before starting active Codex-backed phases", async () => {
+  const { phases, calls } = makePhases([PASS]);
+
+  await assert.rejects(
+    runPipeline(makeCfg({ effort: "max", backend: "claude", planBackends: ["codex"] }), phases),
+    /effort "max".*Claude/
+  );
+
+  assert.deepEqual(calls.planBackends, []);
+});
+
+test("does not reject max effort for inactive Codex research backends", async () => {
+  const { phases, calls } = makePhases([PASS]);
+
+  const result = await runPipeline(makeCfg({ effort: "max", backend: "claude", researchBackends: ["codex"] }), phases);
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(calls.researchBackends, []);
+  assert.deepEqual(calls.planBackends, ["claude"]);
+});
+
 test("verdict JSON schema carries no $schema meta-key", () => {
   // zod v4's toJSONSchema emits one; the Agent SDK silently drops
   // structured_output when it's present (found by live smoke test).

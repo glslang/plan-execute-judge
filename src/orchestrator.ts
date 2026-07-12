@@ -196,8 +196,17 @@ export async function runPipeline(
   if (!Number.isInteger(cfg.planAgents) || cfg.planAgents < 1) {
     throw new Error(`planAgents must be a positive integer, got ${cfg.planAgents}`);
   }
-  resolveAgentBackends("researchBackends", cfg.researchBackends, cfg.researchAgents, cfg.backend);
-  resolveAgentBackends("planBackends", cfg.planBackends, cfg.planAgents, cfg.backend);
+  const researchBackends = resolveAgentBackends(
+    "researchBackends",
+    cfg.researchBackends,
+    cfg.researchAgents,
+    cfg.backend
+  );
+  const planBackends = resolveAgentBackends("planBackends", cfg.planBackends, cfg.planAgents, cfg.backend);
+  const activeBackends = [...planBackends, ...(cfg.research ? researchBackends : []), cfg.backend];
+  if (cfg.effort === "max" && activeBackends.includes("codex")) {
+    throw new Error('effort "max" is only supported by Claude; use PEJ_EFFORT=xhigh or remove Codex backends');
+  }
 
   const savedState = cfg.resume ? loadPipelineState(cfg.cwd, cfg.stateFile) : undefined;
   if (savedState) validateResumeState(cfg, savedState);
