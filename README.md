@@ -136,10 +136,13 @@ PEJ_BACKEND=codex PEJ_MODEL=gpt-5.6-sol PEJ_EFFORT=xhigh \
 npm start -- "implement the task"
 ```
 
-Codex runs research and planning in its read-only sandbox, execution in its
-workspace-write sandbox, and judging in the read-only sandbox with the verdict
-schema supplied as structured output. Each phase starts a fresh Codex thread,
-matching the pipeline's no-transcript-sharing design.
+Codex runs research and planning in its read-only sandbox, and execution in its
+workspace-write sandbox. Codex judging also uses workspace-write so normal
+build/test acceptance commands can create generated outputs, while the judge
+prompt still forbids source, dependency, pipeline-artifact, or git-state
+mutation. The verdict schema is supplied as structured output. Each phase
+starts a fresh Codex thread, matching the pipeline's no-transcript-sharing
+design.
 
 ### Multi-agent research, planning, and refinements
 
@@ -245,12 +248,13 @@ free while it works.
 
 ## Design decisions worth knowing before you extend this
 
-**Plan and judge run under `permissionMode: "dontAsk"` plus a Bash-vetting
-hook.** That mode denies any tool call that isn't in `allowedTools` instead of
-prompting for it -- which is what you want in an unattended pipeline, since
-there's no human around to answer a prompt. `Write`/`Edit` are denied outright
-by the allowlist. Bash stays available (the judge must run `git diff` and the
-plan's acceptance-criterion commands), but a `PreToolUse` hook
+**Claude plan and judge run under `permissionMode: "dontAsk"` plus a
+Bash-vetting hook.** That mode denies any tool call that isn't in
+`allowedTools` instead of prompting for it -- which is what you want in an
+unattended pipeline, since there's no human around to answer a prompt.
+`Write`/`Edit` are denied outright by the allowlist. Bash stays available (the
+judge must run `git diff` and the plan's acceptance-criterion commands), but a
+`PreToolUse` hook
 (`permissions.ts`) denies the common mutation vectors: git subcommands that
 write, `rm`/`mv`/`sed -i` and friends, package-manager installs, `curl`/`wget`,
 and output redirection. This is deliberate defense-in-depth, not a sandbox --
