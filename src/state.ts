@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { VerdictSchema, type PipelineConfig, type ResearchConfig } from "./types.js";
+import { AGENT_BACKENDS, VerdictSchema, type PipelineConfig, type ResearchConfig } from "./types.js";
 
 export class ResumeStateError extends Error {
   constructor(message: string) {
@@ -19,7 +19,7 @@ const ResearchConfigSchema: z.ZodType<ResearchConfig> = z.object({
   sources: z.array(z.string()),
   userResearch: z.array(z.string()),
 });
-const AgentBackendSchema = z.enum(["claude", "codex"]);
+const AgentBackendSchema = z.enum(AGENT_BACKENDS);
 
 export const PipelineStateSchema = z.object({
   version: z.literal(PIPELINE_STATE_VERSION),
