@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentBackend, ResearchConfig } from "./types.js";
+import { AGENT_BACKENDS, type AgentBackend, type ResearchConfig } from "./types.js";
 
 export class CliValidationError extends Error {
   constructor(message: string) {
@@ -47,19 +47,35 @@ export function parseBooleanEnv(raw: string | undefined, defaultValue: boolean, 
 }
 
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly EffortLevel[];
-const AGENT_BACKENDS = ["claude", "codex"] as const satisfies readonly AgentBackend[];
 
-export function parseBackend(raw: string | undefined, defaultValue: AgentBackend): AgentBackend {
-  if (raw === undefined) return defaultValue;
-
+function parseBackendValue(raw: string, name: string): AgentBackend {
   const value = raw.trim().toLowerCase();
   if (!AGENT_BACKENDS.some((backend) => backend === value)) {
-    throw new CliValidationError(
-      `PEJ_BACKEND must be one of ${AGENT_BACKENDS.join(", ")}, got ${JSON.stringify(raw)}`
-    );
+    throw new CliValidationError(`${name} must be one of ${AGENT_BACKENDS.join(", ")}, got ${JSON.stringify(raw)}`);
   }
 
   return value as AgentBackend;
+}
+
+export function parseBackend(
+  raw: string | undefined,
+  defaultValue: AgentBackend,
+  name = "PEJ_BACKEND"
+): AgentBackend {
+  if (raw === undefined) return defaultValue;
+
+  return parseBackendValue(raw, name);
+}
+
+export function parseBackendList(raw: string | undefined, name: string): AgentBackend[] {
+  if (raw === undefined) return [];
+
+  const values = parseList(raw);
+  if (values.length === 0) {
+    throw new CliValidationError(`${name} must contain at least one backend`);
+  }
+
+  return values.map((value) => parseBackendValue(value, name));
 }
 
 export function parseEffort(raw: string | undefined, defaultValue: EffortLevel): EffortLevel {

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
   planAgentFile,
   researchAgentFile,
+  resolveAgentBackends,
   type PipelineConfig,
   type Verdict,
 } from "./types.js";
@@ -112,10 +113,15 @@ function stateFor(
     phase,
     round,
     baselineRef: cfg.baselineRef,
+    backend: cfg.backend,
+    model: cfg.model,
+    modelExplicit: cfg.modelExplicit,
     researchEnabled,
     research: cfg.research,
     researchAgents: cfg.researchAgents,
+    researchBackends: cfg.researchBackends,
     planAgents: cfg.planAgents,
+    planBackends: cfg.planBackends,
     planApproval: cfg.planApproval,
     planFile: cfg.planFile,
     researchFile: cfg.researchFile,
@@ -140,14 +146,15 @@ async function runResearchAgents(cfg: PipelineConfig, phases: PipelinePhases): P
     throw new ResumeStateError("Cannot run the research phase without research inputs.");
   }
 
+  const backends = resolveAgentBackends("researchBackends", cfg.researchBackends, cfg.researchAgents, cfg.backend);
   console.log(
-    `\n[research] ingesting ${cfg.research.sources.length} source(s), ${cfg.research.userResearch.length} user note(s) with ${cfg.researchAgents} agent(s)`
+    `\n[research] ingesting ${cfg.research.sources.length} source(s), ${cfg.research.userResearch.length} user note(s) with ${cfg.researchAgents} agent(s) (${backends.join(", ")})`
   );
   const briefs = await Promise.all(
     Array.from({ length: cfg.researchAgents }, (_, index) => {
       const agentIndex = index + 1;
       const outputFile = cfg.researchAgents === 1 ? cfg.researchFile : researchAgentFile(cfg, agentIndex);
-      return phases.research(cfg, { agentIndex, agentCount: cfg.researchAgents, outputFile });
+      return phases.research(cfg, { agentIndex, agentCount: cfg.researchAgents, outputFile, backend: backends[index] });
     })
   );
   const research = combineResearchBriefs(briefs);
@@ -157,12 +164,13 @@ async function runResearchAgents(cfg: PipelineConfig, phases: PipelinePhases): P
 }
 
 async function runPlanAgents(cfg: PipelineConfig, phases: PipelinePhases, research?: string): Promise<string[]> {
-  console.log(`\n[plan] running ${cfg.planAgents} planning agent(s)`);
+  const backends = resolveAgentBackends("planBackends", cfg.planBackends, cfg.planAgents, cfg.backend);
+  console.log(`\n[plan] running ${cfg.planAgents} planning agent(s) (${backends.join(", ")})`);
   const plans = await Promise.all(
     Array.from({ length: cfg.planAgents }, (_, index) => {
       const agentIndex = index + 1;
       const outputFile = cfg.planAgents === 1 ? cfg.planFile : planAgentFile(cfg, agentIndex);
-      return phases.plan(cfg, research, { agentIndex, agentCount: cfg.planAgents, outputFile });
+      return phases.plan(cfg, research, { agentIndex, agentCount: cfg.planAgents, outputFile, backend: backends[index] });
     })
   );
 
@@ -188,6 +196,8 @@ export async function runPipeline(
   if (!Number.isInteger(cfg.planAgents) || cfg.planAgents < 1) {
     throw new Error(`planAgents must be a positive integer, got ${cfg.planAgents}`);
   }
+  resolveAgentBackends("researchBackends", cfg.researchBackends, cfg.researchAgents, cfg.backend);
+  resolveAgentBackends("planBackends", cfg.planBackends, cfg.planAgents, cfg.backend);
 
   const savedState = cfg.resume ? loadPipelineState(cfg.cwd, cfg.stateFile) : undefined;
   if (savedState) validateResumeState(cfg, savedState);

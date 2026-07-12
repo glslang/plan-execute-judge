@@ -1,7 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { PipelineConfig } from "./types.js";
+import { effectiveModel, type PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
@@ -54,7 +54,7 @@ Output the final plan only, with:
     planText = await runCodexPhase({
       label: "refinements",
       prompt,
-      model: cfg.refinementsModel ?? cfg.planModel ?? cfg.model,
+      model: effectiveModel(cfg, cfg.backend, cfg.refinementsModel ?? cfg.planModel),
       effort: cfg.effort,
       cwd: cfg.cwd,
       sandboxMode: "read-only",
@@ -65,7 +65,7 @@ Output the final plan only, with:
     const stream = query({
       prompt,
       options: {
-        model: cfg.refinementsModel ?? cfg.planModel ?? cfg.model,
+        model: effectiveModel(cfg, cfg.backend, cfg.refinementsModel ?? cfg.planModel),
         effort: cfg.effort,
         cwd: cfg.cwd,
         permissionMode: "dontAsk",

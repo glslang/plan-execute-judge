@@ -122,7 +122,9 @@ for you to review -- the pipeline never commits.
 | `PEJ_RESUME`           | Resume an interrupted run from `.pej-state.json`/artifacts       | `0`               |
 | `PEJ_CODEX_TIMEOUT_MS` | Abort a stuck Codex phase after this many milliseconds           | `1800000`         |
 | `PEJ_RESEARCH_AGENTS`  | Independent research agents when research is enabled             | `1`               |
+| `PEJ_RESEARCH_BACKENDS` | Comma-separated per-research-agent runtimes (`claude`, `codex`) | `PEJ_BACKEND`     |
 | `PEJ_PLAN_AGENTS`      | Independent planning agents before `refinements`                 | `1`               |
+| `PEJ_PLAN_BACKENDS`    | Comma-separated per-planning-agent runtimes (`claude`, `codex`)  | `PEJ_BACKEND`     |
 | `PEJ_PLAN_APPROVAL`    | Require a human to approve `PLAN.md` before execute              | `0`               |
 | `PEJ_MAX_ROUNDS`       | Execute -> judge cycles before giving up                         | `3`               |
 | `PEJ_RESEARCH_SOURCES` | Comma-separated research sources (URLs, git repos, PDFs/docs)    | unset             |
@@ -159,6 +161,21 @@ and so on, then the pipeline writes a combined `RESEARCH.md` for planning.
 Multiple planning agents write `PLAN.agent-1.md`, `PLAN.agent-2.md`, and so on.
 The `refinements` phase then compares those candidate plans, resolves
 conflicts, and writes the final `PLAN.md` consumed by execute and judge.
+
+Use `PEJ_RESEARCH_BACKENDS` and/or `PEJ_PLAN_BACKENDS` to choose a backend per
+agent:
+
+```sh
+PEJ_PLAN_BACKENDS=claude,codex \
+npm start -- "implement the task"
+```
+
+When the matching `PEJ_*_AGENTS` value is unset, a backend list with more than
+one entry sets the agent count. A one-entry backend list repeats for every
+agent, so `PEJ_PLAN_AGENTS=3 PEJ_PLAN_BACKENDS=codex` runs three Codex planning
+agents. Otherwise, the backend list must contain exactly one entry per agent.
+If `PEJ_MODEL` is unset, each backend uses its own default model; an explicit
+`PEJ_MODEL` or per-phase model override is passed through as written.
 
 Set `PEJ_PLAN_APPROVAL=1` to pause after the final plan is written. The CLI
 prints the plan, waits for a human to type `yes`, and rereads `PLAN.md` before
@@ -333,7 +350,10 @@ meta-key zod emits, so `judge.ts` strips it (and a unit test pins that).
 overrides via `PEJ_MODEL` and `PEJ_EFFORT`, and independent model overrides
 (`researchModel` / `planModel` / `refinementsModel` / `executeModel` /
 `judgeModel`) if you want a cheaper model judging or planning than the one
-doing the implementation work.
+doing the implementation work. For multi-agent research and planning,
+`researchBackends` and `planBackends` can override the backend for each
+parallel agent while execute, judge, and refinements continue to use
+`backend`.
 
 **Every Claude phase has a turn ceiling** (`maxTurns` in `types.ts`: research
 128, plan 64, refinements 64, execute 256, judge 64). A phase that hits it ends
