@@ -1,7 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { SandboxMode } from "@openai/codex-sdk";
-import { pipelineArtifactFiles, VerdictSchema, type Verdict, type PipelineConfig } from "./types.js";
+import { effectiveModel, pipelineArtifactFiles, VerdictSchema, type Verdict, type PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
@@ -75,7 +75,7 @@ implementer can act on it without re-reading the whole plan.
     const response = await runCodexPhase({
       label: "judge",
       prompt,
-      model: cfg.judgeModel ?? cfg.model,
+      model: effectiveModel(cfg, cfg.backend, cfg.judgeModel),
       effort: cfg.effort,
       cwd: cfg.cwd,
       sandboxMode: CODEX_JUDGE_SANDBOX_MODE,
@@ -93,7 +93,7 @@ implementer can act on it without re-reading the whole plan.
   const stream = query({
     prompt,
     options: {
-      model: cfg.judgeModel ?? cfg.model,
+      model: effectiveModel(cfg, cfg.backend, cfg.judgeModel),
       effort: cfg.effort,
       cwd: cfg.cwd,
       permissionMode: "dontAsk",

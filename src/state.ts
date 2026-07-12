@@ -19,6 +19,7 @@ const ResearchConfigSchema: z.ZodType<ResearchConfig> = z.object({
   sources: z.array(z.string()),
   userResearch: z.array(z.string()),
 });
+const AgentBackendSchema = z.enum(["claude", "codex"]);
 
 export const PipelineStateSchema = z.object({
   version: z.literal(PIPELINE_STATE_VERSION),
@@ -26,10 +27,15 @@ export const PipelineStateSchema = z.object({
   phase: PipelinePhaseSchema,
   round: z.number().int().positive(),
   baselineRef: z.string().optional(),
+  backend: AgentBackendSchema.optional(),
+  model: z.string().optional(),
+  modelExplicit: z.boolean().optional(),
   researchEnabled: z.boolean(),
   research: ResearchConfigSchema.optional(),
   researchAgents: z.number().int().positive().default(1),
+  researchBackends: z.array(AgentBackendSchema).optional(),
   planAgents: z.number().int().positive().default(1),
+  planBackends: z.array(AgentBackendSchema).optional(),
   planApproval: z.boolean().default(false),
   planFile: z.string(),
   researchFile: z.string(),

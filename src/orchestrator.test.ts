@@ -10,6 +10,7 @@ import {
   planAgentFile,
   researchAgentFile,
   VerdictSchema,
+  type AgentBackend,
   type PipelineConfig,
   type Verdict,
 } from "./types.js";
@@ -46,8 +47,10 @@ function makePhases(verdicts: Verdict[]) {
   const calls: {
     researchCalls: number;
     researchOutputFiles: string[];
+    researchBackends: (AgentBackend | undefined)[];
     planResearch: (string | undefined)[];
     planOutputFiles: string[];
+    planBackends: (AgentBackend | undefined)[];
     refinementPlans: string[][];
     refinementResearch: (string | undefined)[];
     approvedPlans: string[];
@@ -57,8 +60,10 @@ function makePhases(verdicts: Verdict[]) {
   } = {
     researchCalls: 0,
     researchOutputFiles: [],
+    researchBackends: [],
     planResearch: [],
     planOutputFiles: [],
+    planBackends: [],
     refinementPlans: [],
     refinementResearch: [],
     approvedPlans: [],
@@ -73,6 +78,7 @@ function makePhases(verdicts: Verdict[]) {
       const brief = opts?.agentCount && opts.agentCount > 1 ? `THE BRIEF ${opts.agentIndex}` : "THE BRIEF";
       const outputFile = opts?.outputFile ?? cfg.researchFile;
       calls.researchOutputFiles.push(outputFile);
+      calls.researchBackends.push(opts?.backend);
       writeFileSync(join(cfg.cwd, outputFile), brief, "utf-8");
       return brief;
     },
@@ -81,6 +87,7 @@ function makePhases(verdicts: Verdict[]) {
       const plan = opts?.agentCount && opts.agentCount > 1 ? `THE PLAN ${opts.agentIndex}` : "THE PLAN";
       const outputFile = opts?.outputFile ?? cfg.planFile;
       calls.planOutputFiles.push(outputFile);
+      calls.planBackends.push(opts?.backend);
       writeFileSync(join(cfg.cwd, outputFile), plan, "utf-8");
       return plan;
     },
@@ -164,6 +171,31 @@ test("runs multiple planning agents and refinements merges their plans", async (
   assert.deepEqual(calls.judgePlans, ["MERGED PLAN"]);
   assert.equal(result.plan, "MERGED PLAN");
   assert.equal(readFileSync(join(cfg.cwd, cfg.planFile), "utf-8"), "MERGED PLAN");
+});
+
+test("passes configured backends to multi-agent research and planning runs", async () => {
+  const { phases, calls } = makePhases([PASS]);
+  const cfg = makeCfg({
+    research: { sources: ["https://example.com/spec"], userResearch: [] },
+    researchAgents: 2,
+    researchBackends: ["claude", "codex"],
+    planAgents: 2,
+    planBackends: ["codex", "claude"],
+  });
+
+  await runPipeline(cfg, phases);
+
+  assert.deepEqual(calls.researchBackends, ["claude", "codex"]);
+  assert.deepEqual(calls.planBackends, ["codex", "claude"]);
+});
+
+test("repeats a single configured backend across multi-agent runs", async () => {
+  const { phases, calls } = makePhases([PASS]);
+  const cfg = makeCfg({ backend: "claude", planAgents: 2, planBackends: ["codex"] });
+
+  await runPipeline(cfg, phases);
+
+  assert.deepEqual(calls.planBackends, ["codex", "codex"]);
 });
 
 test("approval step gates execution and can replace the plan", async () => {
@@ -256,6 +288,11 @@ test("resumes an interrupted execute round from the checkpoint", async () => {
   const state = JSON.parse(readFileSync(join(cfg.cwd, cfg.stateFile), "utf-8"));
   assert.equal(state.phase, "execute");
   assert.equal(state.round, 1);
+  assert.equal(state.backend, cfg.backend);
+  assert.equal(state.model, cfg.model);
+  assert.equal(state.modelExplicit, cfg.modelExplicit);
+  assert.deepEqual(state.researchBackends, cfg.researchBackends);
+  assert.deepEqual(state.planBackends, cfg.planBackends);
 
   const { phases, calls } = makePhases([PASS]);
   const result = await runPipeline({ ...cfg, resume: true }, phases);
@@ -343,6 +380,14 @@ test("rejects non-positive or non-integer agent counts", async () => {
     const { phases } = makePhases([PASS]);
     await assert.rejects(runPipeline(makeCfg({ planAgents }), phases), /planAgents/);
   }
+});
+
+test("rejects backend lists that do not repeat or match the agent count", async () => {
+  const { phases } = makePhases([PASS]);
+  await assert.rejects(
+    runPipeline(makeCfg({ planAgents: 3, planBackends: ["claude", "codex"] }), phases),
+    /planBackends/
+  );
 });
 
 test("verdict JSON schema carries no $schema meta-key", () => {

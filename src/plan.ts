@@ -1,7 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { PipelineConfig } from "./types.js";
+import { effectiveModel, type AgentBackend, type PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
@@ -11,6 +11,7 @@ export interface PlanRunOptions {
   agentIndex?: number;
   agentCount?: number;
   outputFile?: string;
+  backend?: AgentBackend;
 }
 
 /**
@@ -26,6 +27,7 @@ export async function runPlan(cfg: PipelineConfig, research?: string, opts: Plan
   const agentCount = opts.agentCount ?? 1;
   const label = agentCount > 1 ? `plan ${agentIndex}/${agentCount}` : "plan";
   const outputFile = opts.outputFile ?? cfg.planFile;
+  const backend = opts.backend ?? cfg.backend;
   const inputData = serializePromptData({ task: cfg.task, research: research ?? null, agentIndex, agentCount });
   const prompt = `
 You are the planning phase of a plan -> execute -> judge pipeline. You will not
@@ -65,11 +67,11 @@ Output the plan itself as your final message -- no preamble, no "here's the plan
 `.trim();
 
   let planText: string;
-  if (cfg.backend === "codex") {
+  if (backend === "codex") {
     planText = await runCodexPhase({
       label,
       prompt,
-      model: cfg.planModel ?? cfg.model,
+      model: effectiveModel(cfg, backend, cfg.planModel),
       effort: cfg.effort,
       cwd: cfg.cwd,
       sandboxMode: "read-only",
@@ -80,7 +82,7 @@ Output the plan itself as your final message -- no preamble, no "here's the plan
     const stream = query({
       prompt,
       options: {
-        model: cfg.planModel ?? cfg.model,
+        model: effectiveModel(cfg, backend, cfg.planModel),
         effort: cfg.effort,
         cwd: cfg.cwd,
         permissionMode: "dontAsk",

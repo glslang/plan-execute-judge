@@ -8,6 +8,7 @@ import {
   CliValidationError,
   gitPreflight,
   parseBackend,
+  parseBackendList,
   parseBooleanEnv,
   parseEffort,
   parseList,
@@ -111,6 +112,18 @@ test("parseBackend rejects unsupported runtimes before the pipeline starts", () 
   for (const raw of ["", "openai", "anthropic", "other"]) {
     assert.throws(() => parseBackend(raw, "claude"), CliValidationError);
   }
+});
+
+test("parseBackendList accepts comma-separated backend lists", () => {
+  assert.deepEqual(parseBackendList(undefined, "PEJ_PLAN_BACKENDS"), []);
+  assert.deepEqual(parseBackendList("claude, CODEX , claude", "PEJ_PLAN_BACKENDS"), ["claude", "codex", "claude"]);
+});
+
+test("parseBackendList rejects empty or unsupported backend lists", () => {
+  for (const raw of ["", " , "]) {
+    assert.throws(() => parseBackendList(raw, "PEJ_PLAN_BACKENDS"), CliValidationError);
+  }
+  assert.throws(() => parseBackendList("claude,openai", "PEJ_PLAN_BACKENDS"), CliValidationError);
 });
 
 test("parseList splits comma-separated values and drops empty entries", () => {

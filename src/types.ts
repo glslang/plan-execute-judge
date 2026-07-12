@@ -3,6 +3,8 @@ import type { EffortLevel, SettingSource } from "@anthropic-ai/claude-agent-sdk"
 
 export type AgentBackend = "claude" | "codex";
 
+export const AGENT_BACKENDS = ["claude", "codex"] as const satisfies readonly AgentBackend[];
+
 export const DEFAULT_MODELS: Record<AgentBackend, string> = {
   claude: "claude-opus-4-8",
   codex: "gpt-5.6-sol",
@@ -103,8 +105,22 @@ export interface PipelineConfig {
   /** Number of independent research agents to run when research is configured. */
   researchAgents: number;
 
+  /**
+   * Optional per-agent research backends. Empty means every research agent uses
+   * `backend`; one entry repeats for every research agent; otherwise the list
+   * must match `researchAgents`.
+   */
+  researchBackends: AgentBackend[];
+
   /** Number of independent planning agents to run before refinements merges their plans. */
   planAgents: number;
+
+  /**
+   * Optional per-agent planning backends. Empty means every planning agent uses
+   * `backend`; one entry repeats for every planning agent; otherwise the list
+   * must match `planAgents`.
+   */
+  planBackends: AgentBackend[];
 
   /** Pause after the final plan is written and require a human approval before execute. */
   planApproval: boolean;
@@ -117,6 +133,8 @@ export interface PipelineConfig {
 
   /** Model id used for every phase. Override per-phase below if you want a cheaper judge. */
   model: string;
+  /** True when `model` came from an explicit user override rather than a backend default. */
+  modelExplicit?: boolean;
   /** Reasoning effort used for every phase. */
   effort: EffortLevel;
   researchModel?: string;
@@ -185,6 +203,28 @@ export interface PipelineConfig {
   researchAllowedTools: string[];
 }
 
+export function effectiveModel(
+  cfg: Pick<PipelineConfig, "backend" | "model" | "modelExplicit">,
+  backend: AgentBackend,
+  override?: string
+): string {
+  if (override) return override;
+  const defaultedModel = !cfg.modelExplicit && cfg.model === DEFAULT_MODELS[cfg.backend];
+  return defaultedModel ? DEFAULT_MODELS[backend] : cfg.model;
+}
+
+export function resolveAgentBackends(
+  label: "researchBackends" | "planBackends",
+  backends: AgentBackend[],
+  agentCount: number,
+  fallback: AgentBackend
+): AgentBackend[] {
+  if (backends.length === 0) return Array.from({ length: agentCount }, () => fallback);
+  if (backends.length === 1) return Array.from({ length: agentCount }, () => backends[0]);
+  if (backends.length === agentCount) return backends;
+  throw new Error(`${label} must contain either 1 backend or exactly ${agentCount} backends, got ${backends.length}`);
+}
+
 /**
  * Files the pipeline itself writes into the target tree -- execute must not
  * touch them and the judge ignores them. The research artifact is only
@@ -234,7 +274,9 @@ export const DEFAULT_CONFIG: Omit<PipelineConfig, "task" | "cwd"> = {
   effort: "high",
   researchArtifact: false,
   researchAgents: 1,
+  researchBackends: [],
   planAgents: 1,
+  planBackends: [],
   planApproval: false,
   codexPhaseTimeoutMs: 30 * 60 * 1000,
   planFile: "PLAN.md",
