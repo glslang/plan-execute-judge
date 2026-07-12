@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import type { SandboxMode } from "@openai/codex-sdk";
 import { pipelineArtifactFiles, VerdictSchema, type Verdict, type PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
@@ -10,6 +11,8 @@ import { runCodexPhase } from "./codex.js";
 // the run succeeds but result.structured_output comes back undefined. Strip it.
 const { $schema: _dropped, ...verdictJsonSchema } = z.toJSONSchema(VerdictSchema);
 export { verdictJsonSchema };
+
+export const CODEX_JUDGE_SANDBOX_MODE: SandboxMode = "workspace-write";
 
 /**
  * Reviews the working tree against the plan and nothing else -- it never sees
@@ -59,6 +62,10 @@ ${inputData}
    or implementation changes outside the plan, and "plan_gap" only when the
    plan missed task coverage.
 
+You may have workspace write access so build and test commands can create
+ordinary generated outputs. Do not edit source files, dependency manifests,
+pipeline artifacts, or git state.
+
 Do not raise style preferences or alternative approaches unless they violate
 a stated requirement. Each gap must be specific enough that a fresh
 implementer can act on it without re-reading the whole plan.
@@ -71,7 +78,7 @@ implementer can act on it without re-reading the whole plan.
       model: cfg.judgeModel ?? cfg.model,
       effort: cfg.effort,
       cwd: cfg.cwd,
-      sandboxMode: "read-only",
+      sandboxMode: CODEX_JUDGE_SANDBOX_MODE,
       outputSchema: verdictJsonSchema,
       timeoutMs: cfg.codexPhaseTimeoutMs,
       verbose: true,
