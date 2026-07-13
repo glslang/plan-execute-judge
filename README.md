@@ -175,17 +175,40 @@ the rest of the session, so later runs inherit them. Use `$HOME` rather than
 `~` for `PEJ_TARGET_CWD`: a bare `~` inside a PowerShell string is not
 expanded, and the CLI resolves that variable as a literal path. (Tilde paths
 in `PEJ_RESEARCH_SOURCES`/`PEJ_RESEARCH_NOTES` are fine -- the pipeline
-expands `~/` itself for those.) To run with one-off overrides that do not
-linger, scope them in a child block and clear them afterward:
+expands `~/` itself for those.) `$env:` assignments are process-wide, not
+block-scoped -- a `& { ... }` child block does **not** isolate them -- so for
+one-off overrides that do not linger, save each variable's original value and
+restore it in a `finally` block (`$null` restores an initially-unset variable
+to unset):
 
 ```powershell
-& {
+$saved = @{}
+foreach ($name in "PEJ_BACKEND", "PEJ_MODEL", "PEJ_EFFORT") {
+  $saved[$name] = (Get-Item "Env:\$name" -ErrorAction SilentlyContinue).Value
+}
+try {
+  $env:PEJ_BACKEND = "codex"
+  $env:PEJ_MODEL   = "gpt-5.6-sol"
+  $env:PEJ_EFFORT  = "xhigh"
+  npm start -- "implement the task"
+} finally {
+  foreach ($name in $saved.Keys) {
+    if ($null -eq $saved[$name]) { Remove-Item "Env:\$name" -ErrorAction SilentlyContinue }
+    else { Set-Item "Env:\$name" -Value $saved[$name] }
+  }
+}
+```
+
+Or, more simply, run the overridden command in a separate PowerShell process
+so the variables never touch your current session:
+
+```powershell
+pwsh -Command {
   $env:PEJ_BACKEND = "codex"
   $env:PEJ_MODEL   = "gpt-5.6-sol"
   $env:PEJ_EFFORT  = "xhigh"
   npm start -- "implement the task"
 }
-Remove-Item Env:\PEJ_BACKEND, Env:\PEJ_MODEL, Env:\PEJ_EFFORT
 ```
 
 The same pattern covers the multi-agent, research, and resume variants --
