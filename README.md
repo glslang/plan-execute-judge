@@ -146,6 +146,76 @@ mutation. The verdict schema is supplied as structured output. Each phase
 starts a fresh Codex thread, matching the pipeline's no-transcript-sharing
 design.
 
+### PowerShell (Windows)
+
+The examples above use POSIX shell syntax -- inline `VAR=value command`
+prefixes and `\` line continuations -- which PowerShell does not understand.
+In PowerShell, set each variable with `$env:` on its own line and continue
+lines with a backtick (`` ` ``). The basic run:
+
+```powershell
+Set-Location ~/code/my-service
+node ~/tools/plan-execute-judge/dist/index.js `
+  "add rate limiting to the /upload endpoint, 10 req/min per IP"
+```
+
+or, from this repo's own directory, with overrides:
+
+```powershell
+$env:PEJ_TARGET_CWD = "$HOME/code/my-service"
+$env:PEJ_BACKEND    = "claude"
+$env:PEJ_MODEL      = "claude-sonnet-5"
+$env:PEJ_EFFORT     = "high"
+$env:PEJ_MAX_ROUNDS = "2"
+npm start -- "add rate limiting to the /upload endpoint, 10 req/min per IP"
+```
+
+Unlike the POSIX `VAR=value command` form, `$env:` assignments persist for
+the rest of the session, so later runs inherit them. Use `$HOME` rather than
+`~` for `PEJ_TARGET_CWD`: a bare `~` inside a PowerShell string is not
+expanded, and the CLI resolves that variable as a literal path. (Tilde paths
+in `PEJ_RESEARCH_SOURCES`/`PEJ_RESEARCH_NOTES` are fine -- the pipeline
+expands `~/` itself for those.) To run with one-off overrides that do not
+linger, scope them in a child block and clear them afterward:
+
+```powershell
+& {
+  $env:PEJ_BACKEND = "codex"
+  $env:PEJ_MODEL   = "gpt-5.6-sol"
+  $env:PEJ_EFFORT  = "xhigh"
+  npm start -- "implement the task"
+}
+Remove-Item Env:\PEJ_BACKEND, Env:\PEJ_MODEL, Env:\PEJ_EFFORT
+```
+
+The same pattern covers the multi-agent, research, and resume variants --
+only the variables change. Multi-agent research and planning:
+
+```powershell
+$env:PEJ_RESEARCH_AGENTS = "2"
+$env:PEJ_PLAN_AGENTS     = "3"
+npm start -- "implement the task"
+```
+
+The optional research phase (note the comma-separated list is a single
+quoted string; `~/` is expanded by the pipeline):
+
+```powershell
+$env:PEJ_RESEARCH_SOURCES = "https://docs.stripe.com/webhooks,https://github.com/stripe/stripe-node,~/refs/webhook-spec.pdf"
+$env:PEJ_RESEARCH_NOTES   = "~/notes/stripe-findings.md"
+npm start -- "verify Stripe webhook signatures on /hooks/stripe"
+```
+
+Resuming an interrupted run after a usage limit resets:
+
+```powershell
+$env:PEJ_RESUME  = "1"
+$env:PEJ_BACKEND = "codex"
+$env:PEJ_MODEL   = "gpt-5.6-sol"
+$env:PEJ_EFFORT  = "xhigh"
+npm start -- "implement the task"
+```
+
 ### Multi-agent research, planning, and refinements
 
 Set `PEJ_RESEARCH_AGENTS` and/or `PEJ_PLAN_AGENTS` above `1` to run
