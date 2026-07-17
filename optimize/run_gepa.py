@@ -65,11 +65,13 @@ def main() -> None:
     args = ap.parse_args()
 
     components = [c.strip() for c in args.components.split(",") if c.strip()]
-    unsupported = set(components) - {"plan", "execute", "refinements", "judge"}
+    unsupported = set(components) - {"plan", "execute", "judge"}
     if unsupported:
         raise SystemExit(
-            f"cannot optimize {sorted(unsupported)}: research needs {{SOURCE_ACCESS}} handling, "
-            "and the judge is the metric -- see docs/prompt-optimization.md before adding it"
+            f"cannot optimize {sorted(unsupported)}: research needs {{{{SOURCE_ACCESS}}}} handling, and "
+            "refinements never runs in these rollouts (multi-plan fan-out via PEJ_PLAN_AGENTS is not "
+            "wired into RolloutConfig yet), so its mutations would be scored as noise -- "
+            "see docs/prompt-optimization.md"
         )
     if "judge" in components:
         print("WARNING: optimizing the judge prompt while it contributes to the score is circular;")
@@ -77,7 +79,16 @@ def main() -> None:
 
     defaults = dump_default_prompts()
     seed_candidate = {c: defaults[c] for c in components}
-    trainset = load_tasks(None if args.ids else "train", args.ids.split(",") if args.ids else None)
+    # --ids stays within the train split: a val task in the trainset would be
+    # reflected on, silently contaminating the held-out score.
+    if args.ids:
+        ids = [i.strip() for i in args.ids.split(",") if i.strip()]
+        trainset = load_tasks("train", ids)
+        missing = set(ids) - {t.id for t in trainset}
+        if missing:
+            raise SystemExit(f"--ids must name train-split tasks; not in the train split: {sorted(missing)}")
+    else:
+        trainset = load_tasks("train")
     valset = None if args.no_val else load_tasks("val")
 
     cfg = RolloutConfig(
