@@ -1,6 +1,6 @@
 import { checkFn, done, fixtureTestsStillPass, importFromWorktree } from "./_util.mjs";
 
-fixtureTestsStillPass();
+fixtureTestsStillPass({ baselineTests: 4 });
 
 await checkFn('deslugify("hello-world") === "Hello World"', async () => {
   const { deslugify } = await importFromWorktree("src/deslugify.js");

@@ -1,6 +1,6 @@
 import { checkFn, done, fixtureTestsStillPass, importFromWorktree } from "./_util.mjs";
 
-fixtureTestsStillPass();
+fixtureTestsStillPass({ baselineTests: 4 });
 const { slugify } = await importFromWorktree("src/slugify.js");
 
 await checkFn('slugify("Café déjà vu") === "cafe-deja-vu"', () => {

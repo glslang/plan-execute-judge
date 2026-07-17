@@ -36,6 +36,8 @@ W_FIRST_ROUND = 0.15
 DEFAULT_TASK_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_TASK_EFFORT = "medium"
 
+CHECK_TIMEOUT_S = 300
+
 
 @dataclass(frozen=True)
 class EvalTask:
@@ -200,14 +202,25 @@ def run_rollout(task: EvalTask, prompt_overrides: dict[str, str] | None, cfg: Ro
             except json.JSONDecodeError:
                 notes.append("result file exists but is not valid JSON")
 
-        check = subprocess.run(
-            ["node", str(REPO_ROOT / task.check), str(worktree)],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        hidden_pass = check.returncode == 0
-        check_output = ((check.stdout or "") + (check.stderr or "")).strip()
+        # A hanging import/CLI in the generated code must fail this rollout,
+        # not raise through the executor and abort the whole optimization run.
+        try:
+            check = subprocess.run(
+                ["node", str(REPO_ROOT / task.check), str(worktree)],
+                capture_output=True,
+                text=True,
+                timeout=CHECK_TIMEOUT_S,
+            )
+            hidden_pass = check.returncode == 0
+            check_output = ((check.stdout or "") + (check.stderr or "")).strip()
+        except subprocess.TimeoutExpired as err:
+            hidden_pass = False
+            partial = (err.stdout or b"").decode(errors="replace") if isinstance(err.stdout, bytes) else (err.stdout or "")
+            check_output = (
+                f"hidden check timed out after {CHECK_TIMEOUT_S}s -- an import or command in the "
+                f"modified code appears to hang\npartial output:\n{partial[-500:]}"
+            )
+            notes.append(f"hidden check timed out after {CHECK_TIMEOUT_S}s")
 
         diff = subprocess.run(
             ["git", "-C", str(worktree), "diff", "HEAD", "--stat"], capture_output=True, text=True

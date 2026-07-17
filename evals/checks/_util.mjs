@@ -51,12 +51,25 @@ export function importFromWorktree(relPath) {
   return import(pathToFileURL(join(worktree, relPath)).href);
 }
 
-/** Every check also requires the fixture's own committed test suite to pass. */
-export function fixtureTestsStillPass() {
+/**
+ * Every check requires the fixture's test suite to pass, and -- since every
+ * task's contract includes "add test coverage" -- that the suite grew beyond
+ * the pristine fixture's `baselineTests` count. Without the growth assertion,
+ * an implementation that skips the tests would score full marks while an
+ * honest judge flagging the omission would be penalized as "disagreeing".
+ */
+export function fixtureTestsStillPass({ baselineTests }) {
   const res = runNode(["--test", "test/*.test.js"]);
   check(
     "fixture test suite passes",
     res.status === 0,
     `exit ${res.status}\n${(res.stdout ?? "").slice(-600)}${(res.stderr ?? "").slice(-600)}`
+  );
+  const match = (res.stdout ?? "").match(/^# tests (\d+)$/m);
+  const count = match ? Number(match[1]) : NaN;
+  check(
+    `test coverage was added (suite grew beyond the ${baselineTests} pristine tests)`,
+    Number.isFinite(count) && count > baselineTests,
+    `suite reports ${match ? match[1] : "an unknown number of"} tests`
   );
 }
