@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { check, done, fixtureTestsStillPass, runNode } from "./_util.mjs";
 
-fixtureTestsStillPass();
+fixtureTestsStillPass({ baselineTests: 4 });
 
 const dir = mkdtempSync(join(tmpdir(), "kv-del-check-"));
 const env = { KV_FILE: join(dir, "kv.json") };

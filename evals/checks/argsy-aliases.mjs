@@ -1,6 +1,6 @@
 import { checkFn, done, fixtureTestsStillPass, importFromWorktree } from "./_util.mjs";
 
-fixtureTestsStillPass();
+fixtureTestsStillPass({ baselineTests: 5 });
 const { parse } = await importFromWorktree("src/parse.js");
 
 await checkFn("-v with alias behaves like bare --verbose", () => {
