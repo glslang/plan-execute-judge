@@ -1,0 +1,7 @@
+{
+  "id": "slug-deslug",
+  "fixture": "slugger",
+  "split": "train",
+  "task": "Add a deslugify(slug) function to the slugger library, exported from a new src/deslugify.js, that converts a slug back into a title-cased phrase: deslugify(\"hello-world\") returns \"Hello World\" and deslugify(\"area-51\") returns \"Area 51\". Add test coverage.",
+  "check": "evals/checks/slug-deslug.mjs"
+}

@@ -1,0 +1,7 @@
+{
+  "id": "slug-maxlen",
+  "fixture": "slugger",
+  "split": "val",
+  "task": "Add a maxLength option to slugify: slugify(input, { maxLength: n }) must return a slug no longer than n characters, cut at a hyphen boundary (never mid-word), with no trailing hyphen. For example slugify(\"the quick brown fox\", { maxLength: 10 }) returns \"the-quick\" and slugify(\"one two\", { maxLength: 7 }) returns \"one-two\". Without the option, behavior is unchanged. Add test coverage.",
+  "check": "evals/checks/slug-maxlen.mjs"
+}

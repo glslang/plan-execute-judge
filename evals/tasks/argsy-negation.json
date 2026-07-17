@@ -1,0 +1,7 @@
+{
+  "id": "argsy-negation",
+  "fixture": "argsy",
+  "split": "train",
+  "task": "Support --no-<flag> negation in the argsy parser: an argument like --no-color must set flags.color to false instead of creating a \"no-color\" key. This must work through both the parse() API and the CLI. Add test coverage.",
+  "check": "evals/checks/argsy-negation.mjs"
+}

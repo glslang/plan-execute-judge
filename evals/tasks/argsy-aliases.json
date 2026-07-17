@@ -1,0 +1,7 @@
+{
+  "id": "argsy-aliases",
+  "fixture": "argsy",
+  "split": "train",
+  "task": "Add short-flag alias support to argsy's parse(): accept an options object as a second parameter, parse(argv, { aliases }), where aliases maps single-letter names to long flag names (e.g. { v: \"verbose\" }). An aliased argument like -v must then behave exactly like --verbose, including the value form -n ada. Single-dash arguments that are not in aliases keep their current behavior (treated as positionals), and calls without the options object are unchanged. Add test coverage.",
+  "check": "evals/checks/argsy-aliases.mjs"
+}

@@ -1,0 +1,23 @@
+version = 1
+revision = 3
+requires-python = ">=3.10"
+
+[[package]]
+name = "gepa"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/87/88eebd742a11bfb974d724ec3b9fb30ecfc43a5e57c686d09d69ba3fab97/gepa-0.1.3.tar.gz", hash = "sha256:2a1ae05f1f36fe5385a217c658885d28fc449a01fa480f81ee10716497db4f98", size = 317411, upload-time = "2026-07-14T13:13:02.109Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/a1/b1d0581c863546795c41a6f26a29594da468e7ebd09df29bed1d6d36248d/gepa-0.1.3-py3-none-any.whl", hash = "sha256:7b66871a30f26f927f8d82540f42a8aacf415513a50f1459cfa4816b2cb7f74b", size = 273528, upload-time = "2026-07-14T13:13:00.728Z" },
+]
+
+[[package]]
+name = "pej-optimize"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "gepa" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "gepa", specifier = "==0.1.3" }]
