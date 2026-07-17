@@ -5,7 +5,7 @@ import { effectiveModel, type PipelineConfig } from "./types.js";
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
-import { loadPromptTemplates, renderPrompt } from "./prompts.js";
+import { renderPrompt } from "./prompts.js";
 import { runCodexPhase } from "./codex.js";
 
 export async function runRefinements(cfg: PipelineConfig, plans: string[], research?: string): Promise<string> {
@@ -19,7 +19,7 @@ export async function runRefinements(cfg: PipelineConfig, plans: string[], resea
     plans: plans.map((plan, index) => ({ agent: index + 1, plan })),
   });
 
-  const prompt = renderPrompt(loadPromptTemplates().refinements, { inputData });
+  const prompt = renderPrompt(cfg.prompts.refinements, { inputData });
 
   let planText: string;
   if (cfg.backend === "codex") {

@@ -144,9 +144,9 @@ and treat train/val separation as sacred (val tasks are never reflected on).
 - **`research`**: needs tasks with research sources and `{{SOURCE_ACCESS}}`
   preserved through mutation (extend `validate_prompt_override`); rollouts get
   slower and web-dependent, so keep a dedicated task subset.
-- **`judge`**: see the circularity section — build the labeled-verdict dataset
-  first; never let the judge being optimized contribute the agreement term of
-  its own score.
+- **`judge`**: rejected by `run_gepa.py` — see the circularity section. Build
+  the labeled-verdict dataset first, and never let the judge being optimized
+  contribute the agreement or round-count terms of its own score.
 
 Known limits of the current benchmark: 12 tasks on 3 toy fixtures is enough to
 prove the loop and catch gross prompt regressions, not to certify general

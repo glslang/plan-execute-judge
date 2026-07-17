@@ -65,17 +65,15 @@ def main() -> None:
     args = ap.parse_args()
 
     components = [c.strip() for c in args.components.split(",") if c.strip()]
-    unsupported = set(components) - {"plan", "execute", "judge"}
+    unsupported = set(components) - {"plan", "execute"}
     if unsupported:
         raise SystemExit(
-            f"cannot optimize {sorted(unsupported)}: research needs {{{{SOURCE_ACCESS}}}} handling, and "
+            f"cannot optimize {sorted(unsupported)}: research needs {{{{SOURCE_ACCESS}}}} handling; "
             "refinements never runs in these rollouts (multi-plan fan-out via PEJ_PLAN_AGENTS is not "
-            "wired into RolloutConfig yet), so its mutations would be scored as noise -- "
-            "see docs/prompt-optimization.md"
+            "wired into RolloutConfig yet), so its mutations would be scored as noise; and the judge "
+            "contributes score terms (agreement + first-round bonus), so optimizing it against them is "
+            "circular until a labeled-verdict dataset exists -- see docs/prompt-optimization.md"
         )
-    if "judge" in components:
-        print("WARNING: optimizing the judge prompt while it contributes to the score is circular;")
-        print("         judge agreement weight comes from the hidden checks, but read the doc first.")
 
     defaults = dump_default_prompts()
     seed_candidate = {c: defaults[c] for c in components}

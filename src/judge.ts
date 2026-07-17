@@ -5,7 +5,7 @@ import { effectiveModel, pipelineArtifactFiles, VerdictSchema, type Verdict, typ
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
-import { loadPromptTemplates, renderPrompt } from "./prompts.js";
+import { renderPrompt } from "./prompts.js";
 import { runCodexPhase } from "./codex.js";
 
 // zod v4 emits a top-level "$schema" meta-key that the SDK silently rejects:
@@ -37,7 +37,7 @@ export async function runJudge(cfg: PipelineConfig, plan: string): Promise<Verdi
     },
   });
 
-  const prompt = renderPrompt(loadPromptTemplates().judge, { inputData });
+  const prompt = renderPrompt(cfg.prompts.judge, { inputData });
 
   if (cfg.backend === "codex") {
     const response = await runCodexPhase({
