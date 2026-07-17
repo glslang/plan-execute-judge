@@ -98,6 +98,24 @@ def dump_default_prompts() -> dict[str, str]:
     return json.loads(out.stdout)
 
 
+def compute_score(hidden_pass: bool, pipeline: dict | None) -> float:
+    """A run that never produced a pipeline result (crash, timeout, wedged
+    phase) scores 0 even if the worktree happens to pass the hidden check:
+    optimized prompts must yield runs that complete, and GEPA must never
+    retain a mutation that breaks the pipeline itself."""
+    if pipeline is None:
+        return 0.0
+    score = 0.0
+    if hidden_pass:
+        score += W_HIDDEN
+    judge_pass = bool(pipeline.get("passed"))
+    if judge_pass == hidden_pass:
+        score += W_JUDGE_AGREEMENT
+    if hidden_pass and judge_pass and pipeline.get("rounds") == 1:
+        score += W_FIRST_ROUND
+    return round(score, 4)
+
+
 def validate_prompt_override(text: str) -> str | None:
     """Mirrors the pipeline's own template validation; returns a problem or None."""
     if not isinstance(text, str) or not text.strip():
@@ -201,18 +219,13 @@ def run_rollout(task: EvalTask, prompt_overrides: dict[str, str] | None, cfg: Ro
         )
         diffstat = (diff.stdout.strip() + "\nuntracked/status:\n" + status.stdout.strip()).strip()
 
-        score = 0.0
-        if hidden_pass:
-            score += W_HIDDEN
-        judge_pass = bool(pipeline and pipeline.get("passed"))
-        if pipeline is not None and judge_pass == hidden_pass:
-            score += W_JUDGE_AGREEMENT
-        if hidden_pass and judge_pass and pipeline.get("rounds") == 1:
-            score += W_FIRST_ROUND
+        score = compute_score(hidden_pass, pipeline)
+        if pipeline is None:
+            notes.append("scored 0: the pipeline produced no result file, regardless of worktree state")
 
         return RolloutResult(
             task=task,
-            score=round(score, 4),
+            score=score,
             hidden_pass=hidden_pass,
             pipeline=pipeline,
             check_output=check_output,
