@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { z } from "zod";
 
 /**
  * The five phase prompt templates, externalized so they can be overridden as
@@ -9,14 +10,20 @@ import { resolve } from "node:path";
  * the backend-specific source-access instructions. With PEJ_PROMPTS_FILE
  * unset, the rendered prompts are byte-identical to the original inline
  * literals (pinned by prompts.test.ts).
+ *
+ * The templates are loaded once at CLI startup into PipelineConfig and
+ * persisted in the resume checkpoint -- phases never re-read the override
+ * file, so a write-capable phase cannot swap the instructions of a later
+ * phase mid-run, and a resumed run keeps the prompts it started with.
  */
-export interface PromptTemplates {
-  research: string;
-  plan: string;
-  refinements: string;
-  execute: string;
-  judge: string;
-}
+export const PromptTemplatesSchema = z.object({
+  research: z.string(),
+  plan: z.string(),
+  refinements: z.string(),
+  execute: z.string(),
+  judge: z.string(),
+});
+export type PromptTemplates = z.infer<typeof PromptTemplatesSchema>;
 
 export const PROMPT_PHASES = ["research", "plan", "refinements", "execute", "judge"] as const;
 
@@ -219,9 +226,8 @@ export function validatePromptTemplates(templates: PromptTemplates): void {
 /**
  * Returns the phase prompt templates, overlaying any overrides from the JSON
  * file named by PEJ_PROMPTS_FILE (a partial { research?, plan?, refinements?,
- * execute?, judge? } object) onto the defaults. Read per call rather than
- * cached: the loader is invoked once per phase run, and callers like an
- * optimization harness rewrite the file between runs.
+ * execute?, judge? } object) onto the defaults. Called once at CLI startup;
+ * the result is snapshotted on PipelineConfig (see above).
  */
 export function loadPromptTemplates(env: NodeJS.ProcessEnv = process.env): PromptTemplates {
   const file = env.PEJ_PROMPTS_FILE;

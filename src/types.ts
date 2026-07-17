@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EffortLevel, SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import { DEFAULT_PROMPTS, type PromptTemplates } from "./prompts.js";
 
 export type AgentBackend = "claude" | "codex";
 
@@ -164,6 +165,14 @@ export interface PipelineConfig {
   stateFile: string;
 
   /**
+   * The phase prompt templates, resolved once at startup (defaults overlaid
+   * with any PEJ_PROMPTS_FILE overrides) and checkpointed for resume. Phases
+   * render from this snapshot and never re-read the override file, so no
+   * phase can alter another phase's instructions mid-run.
+   */
+  prompts: PromptTemplates;
+
+  /**
    * When set (PEJ_RESULT_FILE), the pipeline writes a machine-readable JSON
    * summary of the run -- task, config, pass/fail, rounds, plan, research,
    * and every verdict this process produced -- on both the pass and the
@@ -292,6 +301,7 @@ export const DEFAULT_CONFIG: Omit<PipelineConfig, "task" | "cwd"> = {
   planFile: "PLAN.md",
   researchFile: "RESEARCH.md",
   stateFile: ".pej-state.json",
+  prompts: DEFAULT_PROMPTS,
   maxRounds: 3,
   maxTurns: { research: 128, plan: 64, refinements: 64, execute: 256, judge: 64 },
   settingSources: [],

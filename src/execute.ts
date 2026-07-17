@@ -3,7 +3,7 @@ import { effectiveModel, pipelineArtifactFiles, type PipelineConfig, type Verdic
 import { runPhase } from "./util.js";
 import { executeBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
-import { loadPromptTemplates, renderPrompt } from "./prompts.js";
+import { renderPrompt } from "./prompts.js";
 import { runCodexPhase } from "./codex.js";
 
 /**
@@ -20,7 +20,7 @@ export async function runExecute(cfg: PipelineConfig, plan: string, priorVerdict
     pipelineFiles: pipelineArtifactFiles(cfg),
   });
 
-  const prompt = renderPrompt(loadPromptTemplates().execute, { inputData });
+  const prompt = renderPrompt(cfg.prompts.execute, { inputData });
 
   if (cfg.backend === "codex") {
     await runCodexPhase({

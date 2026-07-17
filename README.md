@@ -129,7 +129,7 @@ for you to review -- the pipeline never commits.
 | `PEJ_MAX_ROUNDS`       | Execute -> judge cycles before giving up                         | `3`               |
 | `PEJ_RESEARCH_SOURCES` | Comma-separated research sources (URLs, git repos, PDFs/docs)    | unset             |
 | `PEJ_RESEARCH_NOTES`   | Comma-separated files of research you've already done            | unset             |
-| `PEJ_PROMPTS_FILE`     | JSON file of `{phase: template}` prompt overrides (see `docs/prompt-optimization.md`) | unset |
+| `PEJ_PROMPTS_FILE`     | JSON file of `{phase: template}` prompt overrides, snapshotted at startup and kept across `PEJ_RESUME` (see `docs/prompt-optimization.md`) | unset |
 | `PEJ_RESULT_FILE`      | Write a machine-readable JSON run summary (pass/fail, rounds, verdicts) here | unset |
 
 The Claude model default remains `claude-opus-4-8`; Codex defaults to

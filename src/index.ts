@@ -14,7 +14,7 @@ import {
   researchPreflight,
 } from "./preflight.js";
 import { loadPipelineState, ResumeStateError } from "./state.js";
-import { loadPromptTemplates } from "./prompts.js";
+import { loadPromptTemplates, validatePromptTemplates } from "./prompts.js";
 import { PlanApprovalError } from "./approval.js";
 
 async function main() {
@@ -71,6 +71,11 @@ async function main() {
   );
   const model = savedState?.model ?? process.env.PEJ_MODEL ?? DEFAULT_MODELS[backend];
   const modelExplicit = savedState?.modelExplicit ?? (process.env.PEJ_MODEL !== undefined);
+  // Prompts resolve once here -- a malformed PEJ_PROMPTS_FILE fails before any
+  // phase spends tokens. A resumed run keeps the checkpoint's prompts so every
+  // round of one run uses the same templates; re-validate them either way.
+  const prompts = savedState?.prompts ?? loadPromptTemplates();
+  validatePromptTemplates(prompts);
 
   const cfg: PipelineConfig = {
     ...DEFAULT_CONFIG,
@@ -91,11 +96,9 @@ async function main() {
     effort: parseEffort(process.env.PEJ_EFFORT, DEFAULT_CONFIG.effort),
     maxRounds: parseMaxRounds(process.env.PEJ_MAX_ROUNDS, DEFAULT_CONFIG.maxRounds),
     baselineRef,
+    prompts,
     resultFile: process.env.PEJ_RESULT_FILE,
   };
-
-  // Fail a malformed PEJ_PROMPTS_FILE here, before any phase has spent tokens.
-  loadPromptTemplates();
 
   const result = await runPipeline(cfg);
 

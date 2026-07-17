@@ -6,7 +6,7 @@ import { effectiveModel, type AgentBackend, type PipelineConfig } from "./types.
 import { runPhase } from "./util.js";
 import { researchBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
-import { loadPromptTemplates, renderPrompt } from "./prompts.js";
+import { renderPrompt } from "./prompts.js";
 import { runCodexPhase } from "./codex.js";
 
 export interface ResearchRunOptions {
@@ -69,7 +69,7 @@ export async function runResearch(cfg: PipelineConfig, opts: ResearchRunOptions 
   \`curl -L -o <scratchDir>/<name> <url>\` -- then Read the downloaded file.
   Downloads anywhere else are denied.`;
 
-    const prompt = renderPrompt(loadPromptTemplates().research, { inputData, sourceAccess });
+    const prompt = renderPrompt(cfg.prompts.research, { inputData, sourceAccess });
 
     let brief: string;
     if (backend === "codex") {

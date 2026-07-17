@@ -5,7 +5,7 @@ import { effectiveModel, type AgentBackend, type PipelineConfig } from "./types.
 import { runPhase } from "./util.js";
 import { readOnlyBashHook } from "./permissions.js";
 import { serializePromptData } from "./prompt.js";
-import { loadPromptTemplates, renderPrompt } from "./prompts.js";
+import { renderPrompt } from "./prompts.js";
 import { runCodexPhase } from "./codex.js";
 
 export interface PlanRunOptions {
@@ -30,7 +30,7 @@ export async function runPlan(cfg: PipelineConfig, research?: string, opts: Plan
   const outputFile = opts.outputFile ?? cfg.planFile;
   const backend = opts.backend ?? cfg.backend;
   const inputData = serializePromptData({ task: cfg.task, research: research ?? null, agentIndex, agentCount });
-  const prompt = renderPrompt(loadPromptTemplates().plan, { inputData });
+  const prompt = renderPrompt(cfg.prompts.plan, { inputData });
 
   let planText: string;
   if (backend === "codex") {

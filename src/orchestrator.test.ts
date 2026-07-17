@@ -293,6 +293,9 @@ test("resumes an interrupted execute round from the checkpoint", async () => {
   assert.equal(state.modelExplicit, cfg.modelExplicit);
   assert.deepEqual(state.researchBackends, cfg.researchBackends);
   assert.deepEqual(state.planBackends, cfg.planBackends);
+  // The prompt snapshot rides along in the checkpoint so a resumed run keeps
+  // the templates it started with even if PEJ_PROMPTS_FILE is not re-supplied.
+  assert.deepEqual(state.prompts, cfg.prompts);
 
   const { phases, calls } = makePhases([PASS]);
   const result = await runPipeline({ ...cfg, resume: true }, phases);

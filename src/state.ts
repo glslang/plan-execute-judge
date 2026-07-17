@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import { AGENT_BACKENDS, VerdictSchema, type PipelineConfig, type ResearchConfig } from "./types.js";
+import { PromptTemplatesSchema } from "./prompts.js";
 
 export class ResumeStateError extends Error {
   constructor(message: string) {
@@ -39,6 +40,9 @@ export const PipelineStateSchema = z.object({
   planApproval: z.boolean().default(false),
   planFile: z.string(),
   researchFile: z.string(),
+  // Optional for checkpoints written before prompts were externalized; a
+  // resume without it falls back to re-resolving from the environment.
+  prompts: PromptTemplatesSchema.optional(),
   lastVerdict: VerdictSchema.optional(),
 });
 export type PipelineState = z.infer<typeof PipelineStateSchema>;

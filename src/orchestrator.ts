@@ -146,6 +146,7 @@ function stateFor(
     planApproval: cfg.planApproval,
     planFile: cfg.planFile,
     researchFile: cfg.researchFile,
+    prompts: cfg.prompts,
     lastVerdict,
   };
 }
