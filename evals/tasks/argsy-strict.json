@@ -1,0 +1,7 @@
+{
+  "id": "argsy-strict",
+  "fixture": "argsy",
+  "split": "val",
+  "task": "Add an allow-list mode to argsy's parse(): parse(argv, { allow: [\"name\", ...] }) must throw an Error whose message names the offending flag whenever argv contains a --flag (either --flag value or --flag=value form) that is not in the allow list. Without the option, behavior is unchanged. Add test coverage.",
+  "check": "evals/checks/argsy-strict.mjs"
+}

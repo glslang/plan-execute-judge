@@ -1,0 +1,7 @@
+{
+  "id": "slug-diacritics",
+  "fixture": "slugger",
+  "split": "train",
+  "task": "Make slugify transliterate Latin diacritics instead of dropping them: slugify(\"Café déjà vu\") must return \"cafe-deja-vu\" and slugify(\"Über naïve\") must return \"uber-naive\". Use Unicode normalization rather than a hand-written character lookup table. Add test coverage.",
+  "check": "evals/checks/slug-diacritics.mjs"
+}

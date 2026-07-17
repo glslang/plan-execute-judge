@@ -14,6 +14,7 @@ import {
   researchPreflight,
 } from "./preflight.js";
 import { loadPipelineState, ResumeStateError } from "./state.js";
+import { loadPromptTemplates } from "./prompts.js";
 import { PlanApprovalError } from "./approval.js";
 
 async function main() {
@@ -23,6 +24,7 @@ async function main() {
     console.error("Env: PEJ_TARGET_CWD (target repo), PEJ_BACKEND, PEJ_MODEL, PEJ_EFFORT, PEJ_RESUME,");
     console.error("     PEJ_MAX_ROUNDS, PEJ_CODEX_TIMEOUT_MS, PEJ_RESEARCH_AGENTS, PEJ_PLAN_AGENTS, PEJ_PLAN_APPROVAL,");
     console.error("     PEJ_RESEARCH_BACKENDS, PEJ_PLAN_BACKENDS,");
+    console.error("     PEJ_PROMPTS_FILE (JSON phase->template overrides), PEJ_RESULT_FILE (run summary JSON),");
     console.error("     PEJ_RESEARCH_SOURCES (urls, repos, docs -- comma-separated),");
     console.error("     PEJ_RESEARCH_NOTES (your own research files -- comma-separated)");
     process.exit(1);
@@ -89,7 +91,11 @@ async function main() {
     effort: parseEffort(process.env.PEJ_EFFORT, DEFAULT_CONFIG.effort),
     maxRounds: parseMaxRounds(process.env.PEJ_MAX_ROUNDS, DEFAULT_CONFIG.maxRounds),
     baselineRef,
+    resultFile: process.env.PEJ_RESULT_FILE,
   };
+
+  // Fail a malformed PEJ_PROMPTS_FILE here, before any phase has spent tokens.
+  loadPromptTemplates();
 
   const result = await runPipeline(cfg);
 

@@ -1,0 +1,10 @@
+{
+  "name": "kvstore",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny JSON-file-backed key-value store with a CLI",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  }
+}

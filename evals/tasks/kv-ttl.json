@@ -1,0 +1,7 @@
+{
+  "id": "kv-ttl",
+  "fixture": "kvstore",
+  "split": "val",
+  "task": "Add TTL support to the kvstore CLI: kv set <key> <value> --ttl <seconds> stores an expiry for the key. After the TTL has elapsed, get on that key must behave exactly like a missing key (error on stderr, exit 1) and the key must not appear in list output. Keys set without --ttl never expire. You may change the store file format as needed. Add test coverage.",
+  "check": "evals/checks/kv-ttl.mjs"
+}

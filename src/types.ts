@@ -163,6 +163,16 @@ export interface PipelineConfig {
    */
   stateFile: string;
 
+  /**
+   * When set (PEJ_RESULT_FILE), the pipeline writes a machine-readable JSON
+   * summary of the run -- task, config, pass/fail, rounds, plan, research,
+   * and every verdict this process produced -- on both the pass and the
+   * give-up path. Resolved against `cwd` when relative; point it outside the
+   * target tree (an absolute path) to keep the working tree clean for the
+   * judge. Meant for harnesses (evals, prompt optimizers) that score runs.
+   */
+  resultFile?: string;
+
   /** Max execute -> judge cycles before giving up. Must be >= 1. */
   maxRounds: number;
 

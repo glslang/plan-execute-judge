@@ -1,0 +1,10 @@
+{
+  "name": "argsy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny command-line argument parser",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  }
+}

@@ -33,6 +33,27 @@ export interface PipelineResult {
 }
 
 /**
+ * Machine-readable run summary for cfg.resultFile. `verdicts` holds every
+ * verdict this process produced, in round order -- a resumed run does not
+ * re-include verdicts from before the interruption.
+ */
+function writeResultFile(cfg: PipelineConfig, result: PipelineResult, verdicts: Verdict[]): void {
+  if (!cfg.resultFile) return;
+  const payload = {
+    task: cfg.task,
+    backend: cfg.backend,
+    model: cfg.model,
+    effort: cfg.effort,
+    passed: result.passed,
+    rounds: result.rounds,
+    research: result.research ?? null,
+    plan: result.plan,
+    verdicts,
+  };
+  writeFileSync(resolve(cfg.cwd, cfg.resultFile), JSON.stringify(payload, null, 2) + "\n", "utf-8");
+}
+
+/**
  * The phases as injectable functions, so the loop below is testable without
  * the SDK, a git repo, or an API key.
  */
@@ -223,6 +244,7 @@ export async function runPipeline(
   let research: string | undefined;
   let plan: string | undefined;
   let planCandidates: string[] | undefined;
+  const verdicts: Verdict[] = [];
 
   if (savedState) {
     console.log(`\n[resume] loaded ${cfg.stateFile}; continuing at ${phase} round ${currentRound}\n`);
@@ -297,11 +319,14 @@ export async function runPipeline(
 
     console.log(`\n[judge] round ${currentRound}/${cfg.maxRounds}`);
     verdict = await phases.judge(cfg, plan);
+    verdicts.push(verdict);
     console.log(`\n[judge] ${verdict.pass ? "PASS" : "FAIL"} -- ${verdict.summary}`);
 
     if (verdict.pass) {
       clearPipelineState(cfg);
-      return { passed: true, rounds: currentRound, research, plan, finalVerdict: verdict };
+      const result: PipelineResult = { passed: true, rounds: currentRound, research, plan, finalVerdict: verdict };
+      writeResultFile(cfg, result, verdicts);
+      return result;
     }
 
     for (const gap of verdict.gaps) {
@@ -315,5 +340,7 @@ export async function runPipeline(
   if (!plan || !verdict) {
     throw new ResumeStateError("Cannot report pipeline result without a completed judge verdict.");
   }
-  return { passed: false, rounds: cfg.maxRounds, research, plan, finalVerdict: verdict };
+  const result: PipelineResult = { passed: false, rounds: cfg.maxRounds, research, plan, finalVerdict: verdict };
+  writeResultFile(cfg, result, verdicts);
+  return result;
 }

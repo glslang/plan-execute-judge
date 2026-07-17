@@ -1,0 +1,7 @@
+{
+  "id": "kv-json",
+  "fixture": "kvstore",
+  "split": "val",
+  "task": "Add a JSON output mode to the kvstore CLI list command: kv list --json prints the whole store as a single JSON object mapping keys to values on stdout. It must work on an empty store (printing {}). Plain kv list is unchanged. Add test coverage.",
+  "check": "evals/checks/kv-json.mjs"
+}

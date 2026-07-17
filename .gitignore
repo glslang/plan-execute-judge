@@ -3,3 +3,6 @@ dist/
 dist-bun/
 .env
 *.tsbuildinfo
+optimize/.venv/
+optimize/results/
+__pycache__/

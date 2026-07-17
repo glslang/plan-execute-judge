@@ -1,0 +1,7 @@
+{
+  "id": "kv-prefix",
+  "fixture": "kvstore",
+  "split": "train",
+  "task": "Add prefix filtering to the kvstore CLI list command: kv list --prefix <p> prints only the keys that start with <p>, still sorted and one per line. Plain kv list is unchanged. Add test coverage.",
+  "check": "evals/checks/kv-prefix.mjs"
+}

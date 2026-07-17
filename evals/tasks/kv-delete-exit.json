@@ -1,0 +1,7 @@
+{
+  "id": "kv-delete-exit",
+  "fixture": "kvstore",
+  "split": "train",
+  "task": "Fix the kvstore CLI del command: deleting a key that does not exist currently exits 0 silently. It must instead print an error naming the key to stderr and exit 1. Deleting an existing key still exits 0. Add test coverage.",
+  "check": "evals/checks/kv-delete-exit.mjs"
+}

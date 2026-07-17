@@ -1,0 +1,7 @@
+{
+  "id": "argsy-repeat",
+  "fixture": "argsy",
+  "split": "train",
+  "task": "Make argsy's parse() collect repeated flags into arrays: --tag a --tag b must yield flags.tag = [\"a\", \"b\"] (in argv order), while a flag that appears once stays a plain value. This applies to both the --key value and --key=value forms, including when they are mixed. Add test coverage.",
+  "check": "evals/checks/argsy-repeat.mjs"
+}

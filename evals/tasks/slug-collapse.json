@@ -1,0 +1,7 @@
+{
+  "id": "slug-collapse",
+  "fixture": "slugger",
+  "split": "train",
+  "task": "Fix slugify: runs of whitespace currently produce consecutive hyphens (slugify(\"hello  world\") returns \"hello--world\"). Any run of whitespace must collapse to a single hyphen, and leading/trailing hyphens must be stripped from the result (slugify(\" -hello- \") -> \"hello\"). Add regression tests.",
+  "check": "evals/checks/slug-collapse.mjs"
+}
