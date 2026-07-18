@@ -489,6 +489,16 @@ prompt data escaping used at phase boundaries.
   are intentionally out of scope for this pass. `PLAN.md` remains the default
   human-readable plan artifact.
 
+## Prompt optimization
+
+The five phase prompts are data, not code: `src/prompts.ts` holds the
+defaults, `PEJ_PROMPTS_FILE` overrides any subset, and a GEPA-based harness
+in `optimize/` tunes them against the benchmark tasks in `evals/`, scored by
+hidden acceptance checks the pipeline never sees.
+[docs/prompt-optimization.md](docs/prompt-optimization.md) has the full
+design: metric choice and judge-circularity handling, why GEPA over MIPROv2,
+cost controls, and how to run a baseline or an optimization pass.
+
 ## Layout
 
 ```
@@ -496,6 +506,7 @@ src/
   types.ts             PipelineConfig, ResearchConfig, the Verdict zod schema, defaults
   permissions.ts       Bash-command vetting hooks: read-only, execute, and research policies
   prompt.ts            serialized prompt data helper
+  prompts.ts           the five phase prompt templates + PEJ_PROMPTS_FILE loader
   research.ts          optional deep research over sources + user notes -> brief (RESEARCH.md)
   plan.ts              read-only research -> plan candidate(s)
   refinements.ts       merges multiple plan candidates into the final PLAN.md
@@ -508,6 +519,12 @@ src/
   index.ts             CLI entry: baseline capture, env overrides
   util.ts              drains a query() stream, throws on non-"success" results
   *.test.ts            node:test unit tests (orchestrator loop, command vetting)
+docs/
+  prompt-optimization.md  prompt-optimization design: metric, GEPA vs MIPROv2, usage
+evals/
+  fixtures/, tasks/, checks/  benchmark tasks + hidden ground-truth checks
+optimize/
+  pej.py, adapter.py, ...     GEPA harness (uv project; see optimize/README.md)
 ```
 
 ## License
