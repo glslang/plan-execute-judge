@@ -1,6 +1,6 @@
 import { checkFn, done, fixtureTestsStillPass, importFromWorktree } from "./_util.mjs";
 
-fixtureTestsStillPass({ baselineTests: 4 });
+fixtureTestsStillPass("slugger");
 const { slugify } = await importFromWorktree("src/slugify.js");
 
 await checkFn('consecutive spaces collapse: "hello  world" -> "hello-world"', () => {

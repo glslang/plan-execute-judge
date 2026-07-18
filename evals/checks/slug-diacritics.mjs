@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { check, checkFn, done, fixtureTestsStillPass, importFromWorktree, worktree } from "./_util.mjs";
 
-fixtureTestsStillPass({ baselineTests: 4 });
+fixtureTestsStillPass("slugger");
 const { slugify } = await importFromWorktree("src/slugify.js");
 
 await checkFn('slugify("Café déjà vu") === "cafe-deja-vu"', () => {

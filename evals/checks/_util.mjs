@@ -4,8 +4,8 @@
 // stderr become optimizer feedback, so failure detail should say what was
 // expected and what actually happened.
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const worktree = process.argv[2];
 if (!worktree) {
@@ -51,29 +51,57 @@ export function importFromWorktree(relPath) {
   return import(pathToFileURL(join(worktree, relPath)).href);
 }
 
+const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures");
+const TEST_ARGS = ["--test", "--test-reporter=tap", "test/*.test.js"];
+
+/** Top-level passing test names from TAP output; skipped/todo tests excluded. */
+function tapPassingTestNames(stdout) {
+  const names = [];
+  for (const line of (stdout ?? "").split("\n")) {
+    const match = line.match(/^ok \d+ - (.*)$/);
+    if (match && !/ # (SKIP|TODO)\b/i.test(match[1])) names.push(match[1]);
+  }
+  return names;
+}
+
 /**
- * Every check requires the fixture's test suite to pass, and -- since every
- * task's contract includes "add test coverage" -- that the suite grew beyond
- * the pristine fixture's `baselineTests` count. Without the growth assertion,
- * an implementation that skips the tests would score full marks while an
- * honest judge flagging the omission would be penalized as "disagreeing".
+ * Every check requires the fixture's test suite to pass, that every one of
+ * the pristine fixture's tests still runs and passes by name (so a solution
+ * cannot delete or skip the committed regression suite and backfill with new
+ * tests), and -- since every task's contract includes "add test coverage" --
+ * that the passing-test count grew beyond the pristine count. The pristine
+ * names/count are derived by running the committed fixture's own suite, so
+ * there is nothing to keep in sync by hand.
  *
  * The reporter is forced to TAP (newer Node versions default to the spec
- * reporter even when piped, which prints no parseable `# pass` line), and the
- * growth gate counts *passing* tests so skipped/todo stubs cannot satisfy it.
+ * reporter even when piped, which prints no parseable summary), and only
+ * *passing* tests count, so skipped/todo stubs cannot satisfy the gate.
  */
-export function fixtureTestsStillPass({ baselineTests }) {
-  const res = runNode(["--test", "--test-reporter=tap", "test/*.test.js"]);
+export function fixtureTestsStillPass(fixture) {
+  const pristine = spawnSync(process.execPath, TEST_ARGS, {
+    cwd: join(FIXTURES_DIR, fixture),
+    encoding: "utf-8",
+    timeout: 120_000,
+  });
+  const pristineNames = tapPassingTestNames(pristine.stdout);
+  check(`pristine ${fixture} fixture suite is readable`, pristine.status === 0 && pristineNames.length > 0);
+
+  const res = runNode(TEST_ARGS);
   check(
     "fixture test suite passes",
     res.status === 0,
     `exit ${res.status}\n${(res.stdout ?? "").slice(-600)}${(res.stderr ?? "").slice(-600)}`
   );
-  const match = (res.stdout ?? "").match(/^# pass (\d+)$/m);
-  const count = match ? Number(match[1]) : NaN;
+  const passing = tapPassingTestNames(res.stdout);
+  const missing = pristineNames.filter((name) => !passing.includes(name));
   check(
-    `test coverage was added (passing tests grew beyond the ${baselineTests} pristine tests)`,
-    Number.isFinite(count) && count > baselineTests,
-    `suite reports ${match ? match[1] : "an unknown number of"} passing tests`
+    `all ${pristineNames.length} original fixture tests still run and pass`,
+    missing.length === 0,
+    `missing or not passing: ${missing.join("; ")}`
+  );
+  check(
+    `test coverage was added (passing tests grew beyond the ${pristineNames.length} pristine tests)`,
+    passing.length > pristineNames.length,
+    `suite reports ${passing.length} passing tests`
   );
 }

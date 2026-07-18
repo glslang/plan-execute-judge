@@ -1,6 +1,6 @@
 import { check, checkFn, done, fixtureTestsStillPass, importFromWorktree, runNode } from "./_util.mjs";
 
-fixtureTestsStillPass({ baselineTests: 5 });
+fixtureTestsStillPass("argsy");
 const { parse } = await importFromWorktree("src/parse.js");
 
 await checkFn("--no-color sets flags.color to false", () => {
