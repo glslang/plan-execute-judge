@@ -65,6 +65,8 @@ def main() -> None:
     args = ap.parse_args()
 
     components = [c.strip() for c in args.components.split(",") if c.strip()]
+    if not components:
+        raise SystemExit("--components must select at least one of: plan, execute")
     unsupported = set(components) - {"plan", "execute"}
     if unsupported:
         raise SystemExit(
@@ -116,7 +118,7 @@ def main() -> None:
     )
 
     best = result.best_candidate
-    (run_dir / "optimized-prompts.json").write_text(json.dumps(best, indent=2) + "\n")
+    (run_dir / "optimized-prompts.json").write_text(json.dumps(best, indent=2) + "\n", encoding="utf-8")
 
     report = [
         "# GEPA run report",
@@ -142,7 +144,7 @@ def main() -> None:
         f"    PEJ_PROMPTS_FILE={run_dir / 'optimized-prompts.json'} node dist/index.js \"<task>\"",
         "",
     ]
-    (run_dir / "report.md").write_text("\n".join(report))
+    (run_dir / "report.md").write_text("\n".join(report), encoding="utf-8")
     print("\n".join(report))
     print(f"artifacts in {run_dir}")
 

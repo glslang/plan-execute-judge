@@ -34,7 +34,7 @@ acceptance check** (`evals/checks/*.mjs`): a deterministic script, invisible
 to the pipeline, that verifies the task's actual behavior in the worktree and
 re-runs the fixture's test suite. Score per rollout (`optimize/pej.py`):
 
-```
+```text
 0.70 · hidden check passed
 0.15 · judge verdict agrees with the hidden check   (honest judging, either direction)
 0.15 · hidden check passed AND judge passed it in round 1   (efficiency shaping)
@@ -62,9 +62,10 @@ optimizer is economical.
 
 - **Sample efficiency.** GEPA mutates prompts by *reading* execution traces
   and textual feedback with a reflection LM, instead of inferring gradients
-  from scalar scores over many trials. The paper reports beating MIPROv2 by
-  ~13% with up to 35x fewer rollouts. Budgets of 100–200 metric calls are
-  useful; MIPROv2 wants high hundreds to thousands.
+  from scalar scores over many trials. The paper reports outperforming GRPO
+  by ~10% on average with up to 35x fewer rollouts, and beating MIPROv2 by
+  over 10% on aggregate. Budgets of 100–200 metric calls are useful; MIPROv2
+  wants high hundreds to thousands.
 - **Native fit for rich feedback.** This pipeline already produces exactly
   what GEPA reflects on: `verdict.gaps[]` (typed, per-requirement failure
   descriptions), hidden-check expected-vs-actual output, per-round verdicts,
@@ -110,7 +111,7 @@ minibatch of ≤4 tasks, and expect it to be noise-limited at that budget.
 
 ## Architecture of the harness
 
-```
+```text
 evals/
   fixtures/{argsy,slugger,kvstore}/   3 dependency-free Node mini-projects
   tasks/<id>.json                     12 tasks (8 train / 4 val), natural language only

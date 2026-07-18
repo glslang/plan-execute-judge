@@ -18,7 +18,11 @@ try {
   await new Promise((r) => setTimeout(r, 1400));
 
   const after = runNode(["cli.js", "get", "temp"], env);
-  check("get after expiry behaves like a missing key (exit 1)", after.status === 1, `exit ${after.status}, stdout ${JSON.stringify(after.stdout)}`);
+  check(
+    "get after expiry behaves like a missing key (exit 1, nothing on stdout)",
+    after.status === 1 && after.stdout.trim() === "",
+    `exit ${after.status}, stdout ${JSON.stringify(after.stdout)}`
+  );
   check(
     "expired-key error goes to stderr and names the key, like a missing key",
     after.stderr.includes("temp"),
