@@ -39,7 +39,16 @@ def main() -> None:
 
     overrides = json.loads(Path(args.prompts).read_text(encoding="utf-8")) if args.prompts else None
 
-    tasks = load_tasks(None if args.ids else args.split, args.ids.split(",") if args.ids else None)
+    # Fail on unknown ids rather than silently scoring the matched subset --
+    # a report that quietly omits requested tasks would misrepresent itself.
+    if args.ids:
+        ids = [i.strip() for i in args.ids.split(",") if i.strip()]
+        tasks = load_tasks(None, ids)
+        missing = set(ids) - {t.id for t in tasks}
+        if missing:
+            raise SystemExit(f"--ids names unknown tasks: {sorted(missing)}")
+    else:
+        tasks = load_tasks(args.split)
     if args.limit:
         tasks = tasks[: args.limit]
     cfg = RolloutConfig(

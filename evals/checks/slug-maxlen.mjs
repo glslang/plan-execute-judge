@@ -1,6 +1,6 @@
 import { checkFn, done, fixtureTestsStillPass, importFromWorktree } from "./_util.mjs";
 
-fixtureTestsStillPass({ baselineTests: 4 });
+fixtureTestsStillPass("slugger");
 const { slugify } = await importFromWorktree("src/slugify.js");
 
 await checkFn('maxLength cuts at a hyphen boundary: "the quick brown fox" @10 -> "the-quick"', () => {

@@ -29,9 +29,11 @@ optimization would just teach the prompts to game the metric.
 1. Pick or add a fixture. Keep it dependency-free so rollouts stay fast.
 2. Write `tasks/<id>.json` with a natural task description and a `split`.
 3. Write `checks/<id>.mjs` using the helpers in `checks/_util.mjs`; make
-   failure messages say expected vs. actual. Pass the fixture's pristine test
-   count to `fixtureTestsStillPass({ baselineTests })` — every task's contract
-   includes adding test coverage, and the helper asserts the suite actually
-   grew (argsy: 5, slugger: 4, kvstore: 4).
+   failure messages say expected vs. actual. Call
+   `fixtureTestsStillPass("<fixture>")` — every task's contract includes
+   adding test coverage, so the helper runs the committed fixture's own suite
+   to derive the pristine test names, asserts each still runs and passes in
+   the worktree (no deleting or skipping the regression suite), and asserts
+   the passing-test count grew.
 4. Sanity-check both directions: the check must fail against the pristine
    fixture and pass against a hand-made solution.

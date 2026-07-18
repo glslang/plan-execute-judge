@@ -1,6 +1,6 @@
 import { checkFn, done, fixtureTestsStillPass, importFromWorktree } from "./_util.mjs";
 
-fixtureTestsStillPass({ baselineTests: 5 });
+fixtureTestsStillPass("argsy");
 const { parse } = await importFromWorktree("src/parse.js");
 
 await checkFn("repeated --key value flags collect into an array", () => {
