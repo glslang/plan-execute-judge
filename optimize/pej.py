@@ -77,7 +77,7 @@ class RolloutResult:
 def load_tasks(split: str | None = None, ids: list[str] | None = None) -> list[EvalTask]:
     tasks = []
     for path in sorted(TASKS_DIR.glob("*.json")):
-        task = EvalTask(**json.loads(path.read_text()))
+        task = EvalTask(**json.loads(path.read_text(encoding="utf-8")))
         if split and split != "all" and task.split != split:
             continue
         if ids and task.id not in ids:
@@ -104,7 +104,13 @@ def compute_score(hidden_pass: bool, pipeline: dict | None) -> float:
     """A run that never produced a pipeline result (crash, timeout, wedged
     phase) scores 0 even if the worktree happens to pass the hidden check:
     optimized prompts must yield runs that complete, and GEPA must never
-    retain a mutation that breaks the pipeline itself."""
+    retain a mutation that breaks the pipeline itself.
+
+    A give-up run (judge failed maxRounds times, pipeline exited 1 after
+    writing its result) is NOT a crash and is scored normally -- e.g. hidden
+    pass + judge fail = 0.70 is a deliberate signal about an over-strict
+    judge, and the 0.15 agreement term on a hidden failure rewards a judge
+    that honestly caught a bad implementation."""
     if pipeline is None:
         return 0.0
     score = 0.0
@@ -184,7 +190,7 @@ def run_rollout(task: EvalTask, prompt_overrides: dict[str, str] | None, cfg: Ro
         )
         if prompt_overrides:
             prompts_file = work / "prompts.json"
-            prompts_file.write_text(json.dumps(prompt_overrides, indent=2))
+            prompts_file.write_text(json.dumps(prompt_overrides, indent=2), encoding="utf-8")
             env["PEJ_PROMPTS_FILE"] = str(prompts_file)
 
         code, tail = _run_killable(["node", str(DIST_ENTRY), task.task], env, cfg.timeout_s)
@@ -198,7 +204,7 @@ def run_rollout(task: EvalTask, prompt_overrides: dict[str, str] | None, cfg: Ro
         pipeline: dict | None = None
         if result_file.exists():
             try:
-                pipeline = json.loads(result_file.read_text())
+                pipeline = json.loads(result_file.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 notes.append("result file exists but is not valid JSON")
 

@@ -57,19 +57,23 @@ export function importFromWorktree(relPath) {
  * the pristine fixture's `baselineTests` count. Without the growth assertion,
  * an implementation that skips the tests would score full marks while an
  * honest judge flagging the omission would be penalized as "disagreeing".
+ *
+ * The reporter is forced to TAP (newer Node versions default to the spec
+ * reporter even when piped, which prints no parseable `# pass` line), and the
+ * growth gate counts *passing* tests so skipped/todo stubs cannot satisfy it.
  */
 export function fixtureTestsStillPass({ baselineTests }) {
-  const res = runNode(["--test", "test/*.test.js"]);
+  const res = runNode(["--test", "--test-reporter=tap", "test/*.test.js"]);
   check(
     "fixture test suite passes",
     res.status === 0,
     `exit ${res.status}\n${(res.stdout ?? "").slice(-600)}${(res.stderr ?? "").slice(-600)}`
   );
-  const match = (res.stdout ?? "").match(/^# tests (\d+)$/m);
+  const match = (res.stdout ?? "").match(/^# pass (\d+)$/m);
   const count = match ? Number(match[1]) : NaN;
   check(
-    `test coverage was added (suite grew beyond the ${baselineTests} pristine tests)`,
+    `test coverage was added (passing tests grew beyond the ${baselineTests} pristine tests)`,
     Number.isFinite(count) && count > baselineTests,
-    `suite reports ${match ? match[1] : "an unknown number of"} tests`
+    `suite reports ${match ? match[1] : "an unknown number of"} passing tests`
   );
 }

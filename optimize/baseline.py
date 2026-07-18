@@ -37,7 +37,7 @@ def main() -> None:
     ap.add_argument("--out", help="where to write the JSON report (default optimize/results/baseline-<ts>.json)")
     args = ap.parse_args()
 
-    overrides = json.loads(Path(args.prompts).read_text()) if args.prompts else None
+    overrides = json.loads(Path(args.prompts).read_text(encoding="utf-8")) if args.prompts else None
 
     tasks = load_tasks(None if args.ids else args.split, args.ids.split(",") if args.ids else None)
     if args.limit:
@@ -75,7 +75,7 @@ def main() -> None:
             for r in results
         ],
     }
-    out.write_text(json.dumps(payload, indent=2) + "\n")
+    out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"\nreport written to {out}")
 
 
