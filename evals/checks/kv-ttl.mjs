@@ -10,6 +10,9 @@ const env = { KV_FILE: join(dir, "kv.json") };
 try {
   const set = runNode(["cli.js", "set", "temp", "v", "--ttl", "1"], env);
   check("set with --ttl exits 0", set.status === 0, set.stderr);
+  // Never read via `get` before the list assertion: catches implementations
+  // that lazily purge expired keys on get but leave list TTL-unaware.
+  runNode(["cli.js", "set", "temp2", "v2", "--ttl", "1"], env);
 
   const before = runNode(["cli.js", "get", "temp"], env);
   check("get before expiry returns the value", before.status === 0 && before.stdout.trim() === "v", `exit ${before.status}, stdout ${JSON.stringify(before.stdout)}`);
@@ -31,6 +34,11 @@ try {
 
   const list = runNode(["cli.js", "list"], env);
   check("expired key is absent from list", list.status === 0 && !list.stdout.split("\n").includes("temp"), list.stdout);
+  check(
+    "expired key never touched by get is also absent from list",
+    !list.stdout.split("\n").includes("temp2"),
+    list.stdout
+  );
   check("key without --ttl never expires", list.stdout.split("\n").includes("keep"), list.stdout);
 } finally {
   rmSync(dir, { recursive: true, force: true });
