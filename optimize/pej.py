@@ -100,7 +100,7 @@ def dump_default_prompts() -> dict[str, str]:
     return json.loads(out.stdout)
 
 
-def compute_score(hidden_pass: bool, pipeline: dict | None) -> float:
+def compute_score(hidden_pass: bool, pipeline: dict | None, *, head_moved: bool = False) -> float:
     """A run that never produced a pipeline result (crash, timeout, wedged
     phase) scores 0 even if the worktree happens to pass the hidden check:
     optimized prompts must yield runs that complete, and GEPA must never
@@ -110,8 +110,13 @@ def compute_score(hidden_pass: bool, pipeline: dict | None) -> float:
     writing its result) is NOT a crash and is scored normally -- e.g. hidden
     pass + judge fail = 0.70 is a deliberate signal about an over-strict
     judge, and the 0.15 agreement term on a hidden failure rewards a judge
-    that honestly caught a bad implementation."""
-    if pipeline is None:
+    that honestly caught a bad implementation.
+
+    A rollout that moved HEAD scores 0 outright: the execute contract requires
+    leaving every change uncommitted, and committing also hides the diff from
+    the judge's and this harness's baseline comparison -- a prompt mutation
+    that commits must never look attractive to GEPA."""
+    if pipeline is None or head_moved:
         return 0.0
     score = 0.0
     if hidden_pass:
@@ -136,8 +141,9 @@ def validate_prompt_override(text: str) -> str | None:
     return None
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
+def _git(cwd: Path, *args: str) -> str:
+    proc = subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
+    return proc.stdout.strip()
 
 
 def _run_killable(cmd: list[str], env: dict[str, str], timeout_s: int) -> tuple[int | None, str]:
@@ -176,6 +182,7 @@ def run_rollout(task: EvalTask, prompt_overrides: dict[str, str] | None, cfg: Ro
         _git(worktree, "config", "user.name", "pej-evals")
         _git(worktree, "add", "-A")
         _git(worktree, "commit", "-q", "-m", "fixture baseline")
+        baseline_sha = _git(worktree, "rev-parse", "HEAD")
 
         result_file = work / "result.json"
         env = {k: v for k, v in os.environ.items() if not k.startswith("PEJ_")}
@@ -228,8 +235,10 @@ def run_rollout(task: EvalTask, prompt_overrides: dict[str, str] | None, cfg: Ro
             )
             notes.append(f"hidden check timed out after {CHECK_TIMEOUT_S}s")
 
+        # Diff against the recorded baseline SHA, not HEAD: an executor that
+        # commits its changes moves HEAD and would otherwise show a clean diff.
         diff = subprocess.run(
-            ["git", "-C", str(worktree), "diff", "HEAD", "--stat"], capture_output=True, text=True
+            ["git", "-C", str(worktree), "diff", baseline_sha, "--stat"], capture_output=True, text=True
         )
         status = subprocess.run(
             ["git", "-C", str(worktree), "status", "--porcelain", "--untracked-files=all"],
@@ -238,8 +247,14 @@ def run_rollout(task: EvalTask, prompt_overrides: dict[str, str] | None, cfg: Ro
         )
         diffstat = (diff.stdout.strip() + "\nuntracked/status:\n" + status.stdout.strip()).strip()
 
-        score = compute_score(hidden_pass, pipeline)
-        if pipeline is None:
+        head_moved = _git(worktree, "rev-parse", "HEAD") != baseline_sha
+        score = compute_score(hidden_pass, pipeline, head_moved=head_moved)
+        if head_moved:
+            notes.append(
+                "scored 0: the run committed changes (HEAD moved from the fixture baseline); "
+                "the execute contract requires leaving every change uncommitted"
+            )
+        elif pipeline is None:
             notes.append("scored 0: the pipeline produced no result file, regardless of worktree state")
 
         return RolloutResult(

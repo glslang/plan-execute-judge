@@ -21,12 +21,14 @@ await checkFn("handles diacritics across scripts, not just the examples", () => 
   );
 });
 // The task contract explicitly requires Unicode normalization rather than a
-// character table -- enforce the technique, not just the behavior.
+// character table -- enforce the technique, not just the behavior. Scan src/
+// recursively so a solution that factors the stripping into a helper module
+// is not false-failed.
 await checkFn("implementation uses Unicode normalization (String.normalize)", () => {
   const srcDir = join(worktree, "src");
-  return readdirSync(srcDir)
-    .filter((f) => f.endsWith(".js"))
-    .some((f) => /\.normalize\s*\(/.test(readFileSync(join(srcDir, f), "utf-8")));
+  return readdirSync(srcDir, { recursive: true })
+    .filter((f) => String(f).endsWith(".js"))
+    .some((f) => /\.normalize\s*\(/.test(readFileSync(join(srcDir, String(f)), "utf-8")));
 });
 await checkFn("ASCII input is unaffected", () => {
   return slugify("Hello World") === "hello-world";
