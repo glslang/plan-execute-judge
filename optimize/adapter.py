@@ -42,6 +42,9 @@ class PejAdapter(GEPAAdapter[EvalTask, RolloutResult, dict[str, Any]]):
                     outputs=outputs,
                     scores=[0.0] * len(batch),
                     trajectories=outputs if capture_traces else None,
+                    # No rollouts happened; without this, gepa falls back to
+                    # len(batch) and malformed proposals eat the --budget.
+                    num_metric_calls=0,
                 )
 
         results = run_rollouts(batch, dict(candidate), self.cfg)
