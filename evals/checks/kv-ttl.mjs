@@ -22,6 +22,13 @@ try {
   // Never read via `get` before the list assertion: catches implementations
   // that lazily purge expired keys on get but leave list TTL-unaware.
   runNode(["cli.js", "set", "temp2", "v2", "--ttl", "1"], env);
+  const before = runNode(["cli.js", "get", "temp"], env);
+  check("get before expiry returns the value", before.status === 0 && before.stdout.trim() === "v", `exit ${before.status}, stdout ${JSON.stringify(before.stdout)}`);
+
+  // Set the longer-lived keys only after the 1s keys have been read: extra
+  // spawns inside their one-second window could eat it on a slow host and fail
+  // a correct implementation.
+  //
   // A mid TTL, bracketed on both sides of its own expiry below: this is what
   // pins the supplied seconds to a real duration. A key that only has to
   // outlive the 1s keys would also survive an implementation that scales every
@@ -33,9 +40,6 @@ try {
   // implementations that ignore the supplied seconds and hardcode a short
   // (~1s) expiry for every --ttl key.
   runNode(["cli.js", "set", "long", "lives", "--ttl", "30"], env);
-
-  const before = runNode(["cli.js", "get", "temp"], env);
-  check("get before expiry returns the value", before.status === 0 && before.stdout.trim() === "v", `exit ${before.status}, stdout ${JSON.stringify(before.stdout)}`);
 
   runNode(["cli.js", "set", "keep", "stays"], env);
   await new Promise((r) => setTimeout(r, 1400));
