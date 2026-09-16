@@ -25,21 +25,17 @@ try {
   const before = runNode(["cli.js", "get", "temp"], env);
   check("get before expiry returns the value", before.status === 0 && before.stdout.trim() === "v", `exit ${before.status}, stdout ${JSON.stringify(before.stdout)}`);
 
-  // Set the longer-lived keys only after the 1s keys have been read: extra
-  // spawns inside their one-second window could eat it on a slow host and fail
-  // a correct implementation.
+  // Set `mid` only after the 1s keys have been read: an extra spawn inside
+  // their one-second window could eat it on a slow host and fail a correct
+  // implementation.
   //
-  // A mid TTL, bracketed on both sides of its own expiry below: this is what
+  // `mid` is bracketed on both sides of its own expiry below, which is what
   // pins the supplied seconds to a real duration. A key that only has to
   // outlive the 1s keys would also survive an implementation that scales every
   // TTL (e.g. `seconds * 500`), so `mid` must be alive well before its boundary
   // AND expired shortly after it.
   const midSetAt = Date.now();
   runNode(["cli.js", "set", "mid", "alive", "--ttl", String(MID_TTL)], env);
-  // A long TTL, comfortably larger than the whole check's runtime: catches
-  // implementations that ignore the supplied seconds and hardcode a short
-  // (~1s) expiry for every --ttl key.
-  runNode(["cli.js", "set", "long", "lives", "--ttl", "30"], env);
 
   runNode(["cli.js", "set", "keep", "stays"], env);
   await new Promise((r) => setTimeout(r, 1400));
@@ -56,13 +52,6 @@ try {
     `stderr ${JSON.stringify(after.stderr)}`
   );
 
-  const long = runNode(["cli.js", "get", "long"], env);
-  check(
-    "key set with --ttl 30 is still readable after ~1.4s (the TTL value is honored, not hardcoded)",
-    long.status === 0 && long.stdout.trim() === "lives",
-    `exit ${long.status}, stdout ${JSON.stringify(long.stdout)}, stderr ${JSON.stringify(long.stderr)}`
-  );
-
   const list = runNode(["cli.js", "list"], env);
   check("expired key is absent from list", list.status === 0 && !list.stdout.split("\n").includes("temp"), list.stdout);
   check(
@@ -71,8 +60,8 @@ try {
     list.stdout
   );
   check(
-    "key set with --ttl 30 is still in list after ~1.4s",
-    list.stdout.split("\n").includes("long"),
+    `unexpired --ttl ${MID_TTL} key is still in list`,
+    list.stdout.split("\n").includes("mid"),
     list.stdout
   );
   check("key without --ttl never expires", list.stdout.split("\n").includes("keep"), list.stdout);
