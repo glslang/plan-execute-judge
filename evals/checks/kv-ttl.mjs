@@ -20,7 +20,17 @@ const simFile = join(dir, "sim.json");
 // inclusive or exclusive.
 const T0 = 1_700_000_000_000;
 const real = { KV_FILE: realFile };
-const at = (ms) => ({ KV_FILE: simFile, KV_NOW: String(ms) });
+
+// Simulated time must never rewind: an implementation is free to purge expired
+// records when it reads, so a key observed as expired can be gone for good.
+// Rewinding would demand it reappear and fail a correct purge-on-read store,
+// hence the guard rather than a comment.
+let lastNow = -Infinity;
+const at = (ms) => {
+  if (ms < lastNow) throw new Error(`check bug: KV_NOW rewound from ${lastNow} to ${ms}`);
+  lastNow = ms;
+  return { KV_FILE: simFile, KV_NOW: String(ms) };
+};
 
 const lines = (res) => res.stdout.split("\n");
 
@@ -92,20 +102,6 @@ try {
     `exit ${sixtyEarly.status}, stdout ${JSON.stringify(sixtyEarly.stdout)}, stderr ${JSON.stringify(sixtyEarly.stderr)}`
   );
 
-  const sixtyBefore = runNode(["cli.js", "get", "sixty"], at(T0 + 60_000 - 1));
-  check(
-    "--ttl 60 key is readable 1ms before its expiry",
-    sixtyBefore.status === 0 && sixtyBefore.stdout.trim() === "v60",
-    `exit ${sixtyBefore.status}, stdout ${JSON.stringify(sixtyBefore.stdout)}, stderr ${JSON.stringify(sixtyBefore.stderr)}`
-  );
-
-  const sixtyAfter = runNode(["cli.js", "get", "sixty"], at(T0 + 60_000 + 1));
-  check(
-    "--ttl 60 key is expired 1ms after its expiry",
-    sixtyAfter.status === 1 && sixtyAfter.stdout.trim() === "",
-    `exit ${sixtyAfter.status}, stdout ${JSON.stringify(sixtyAfter.stdout)}`
-  );
-
   const midList = runNode(["cli.js", "list"], at(T0 + 5_000 + 1));
   check(
     "list reflects the injected clock: expired key gone, longer-lived keys still listed",
@@ -119,6 +115,20 @@ try {
     "expired key never touched by get is also absent under the injected clock",
     !lines(midList).includes("five2"),
     midList.stdout
+  );
+
+  const sixtyBefore = runNode(["cli.js", "get", "sixty"], at(T0 + 60_000 - 1));
+  check(
+    "--ttl 60 key is readable 1ms before its expiry",
+    sixtyBefore.status === 0 && sixtyBefore.stdout.trim() === "v60",
+    `exit ${sixtyBefore.status}, stdout ${JSON.stringify(sixtyBefore.stdout)}, stderr ${JSON.stringify(sixtyBefore.stderr)}`
+  );
+
+  const sixtyAfter = runNode(["cli.js", "get", "sixty"], at(T0 + 60_000 + 1));
+  check(
+    "--ttl 60 key is expired 1ms after its expiry",
+    sixtyAfter.status === 1 && sixtyAfter.stdout.trim() === "",
+    `exit ${sixtyAfter.status}, stdout ${JSON.stringify(sixtyAfter.stdout)}`
   );
 
   const lateList = runNode(["cli.js", "list"], at(T0 + 60_000 + 1));
