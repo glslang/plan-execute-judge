@@ -58,6 +58,11 @@ try {
   );
 
   runNode(["cli.js", "set", "keep", "stays"], real);
+  // A non-unit TTL on this path too. Without it the real-clock half only ever
+  // exercises --ttl 1, so an implementation could honor the seconds value under
+  // KV_NOW and fall back to a constant 1s expiry without it -- passing every
+  // injected boundary while `kv set x y --ttl 60` expires after a second.
+  runNode(["cli.js", "set", "slow", "later", "--ttl", "30"], real);
   await new Promise((r) => setTimeout(r, 1400));
 
   const after = runNode(["cli.js", "get", "temp"], real);
@@ -72,9 +77,17 @@ try {
     `stderr ${JSON.stringify(after.stderr)}`
   );
 
+  const slow = runNode(["cli.js", "get", "slow"], real);
+  check(
+    "system-clock --ttl 30 key is still readable once the --ttl 1 keys have expired",
+    slow.status === 0 && slow.stdout.trim() === "later",
+    `exit ${slow.status}, stdout ${JSON.stringify(slow.stdout)}, stderr ${JSON.stringify(slow.stderr)}`
+  );
+
   const list = runNode(["cli.js", "list"], real);
   check("expired key is absent from list", list.status === 0 && !lines(list).includes("temp"), list.stdout);
   check("expired key never touched by get is also absent from list", !lines(list).includes("temp2"), list.stdout);
+  check("system-clock --ttl 30 key is still in list", lines(list).includes("slow"), list.stdout);
   check("key without --ttl never expires", lines(list).includes("keep"), list.stdout);
 
   // ------------------------------------------------------------ injected clock
