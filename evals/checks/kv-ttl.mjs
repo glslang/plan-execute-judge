@@ -34,8 +34,14 @@ try {
   // outlive the 1s keys would also survive an implementation that scales every
   // TTL (e.g. `seconds * 500`), so `mid` must be alive well before its boundary
   // AND expired shortly after it.
+  //
+  // The key is stamped at some instant inside the `set` process, so its real
+  // expiry lies in [midSetAt, midSetDone] + MID_TTL. The bounds below are
+  // anchored accordingly -- earliest possible expiry for "alive", latest for
+  // "expired" -- so both margins hold even when that spawn is slow.
   const midSetAt = Date.now();
   runNode(["cli.js", "set", "mid", "alive", "--ttl", String(MID_TTL)], env);
+  const midSetDone = Date.now();
 
   runNode(["cli.js", "set", "keep", "stays"], env);
   await new Promise((r) => setTimeout(r, 1400));
@@ -77,7 +83,7 @@ try {
     `exit ${midBefore.status}, stdout ${JSON.stringify(midBefore.stdout)}, stderr ${JSON.stringify(midBefore.stderr)}`
   );
 
-  await sleepUntil(midSetAt + MID_TTL * 1000 + MARGIN_MS);
+  await sleepUntil(midSetDone + MID_TTL * 1000 + MARGIN_MS);
   const midAfter = runNode(["cli.js", "get", "mid"], env);
   check(
     `key set with --ttl ${MID_TTL} is expired ~1s after its expiry (TTL is not lengthened)`,
@@ -87,8 +93,8 @@ try {
   const midList = runNode(["cli.js", "list"], env);
   check(
     `key set with --ttl ${MID_TTL} is absent from list once expired`,
-    !midList.stdout.split("\n").includes("mid"),
-    midList.stdout
+    midList.status === 0 && !midList.stdout.split("\n").includes("mid"),
+    `exit ${midList.status}, stdout ${JSON.stringify(midList.stdout)}, stderr ${JSON.stringify(midList.stderr)}`
   );
 } finally {
   rmSync(dir, { recursive: true, force: true });
