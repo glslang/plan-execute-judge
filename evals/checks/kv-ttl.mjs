@@ -25,24 +25,6 @@ try {
   const before = runNode(["cli.js", "get", "temp"], env);
   check("get before expiry returns the value", before.status === 0 && before.stdout.trim() === "v", `exit ${before.status}, stdout ${JSON.stringify(before.stdout)}`);
 
-  // Set `mid` only after the 1s keys have been read: an extra spawn inside
-  // their one-second window could eat it on a slow host and fail a correct
-  // implementation.
-  //
-  // `mid` is bracketed on both sides of its own expiry below, which is what
-  // pins the supplied seconds to a real duration. A key that only has to
-  // outlive the 1s keys would also survive an implementation that scales every
-  // TTL (e.g. `seconds * 500`), so `mid` must be alive well before its boundary
-  // AND expired shortly after it.
-  //
-  // The key is stamped at some instant inside the `set` process, so its real
-  // expiry lies in [midSetAt, midSetDone] + MID_TTL. The bounds below are
-  // anchored accordingly -- earliest possible expiry for "alive", latest for
-  // "expired" -- so both margins hold even when that spawn is slow.
-  const midSetAt = Date.now();
-  runNode(["cli.js", "set", "mid", "alive", "--ttl", String(MID_TTL)], env);
-  const midSetDone = Date.now();
-
   runNode(["cli.js", "set", "keep", "stays"], env);
   await new Promise((r) => setTimeout(r, 1400));
 
@@ -65,16 +47,34 @@ try {
     !list.stdout.split("\n").includes("temp2"),
     list.stdout
   );
-  check(
-    `unexpired --ttl ${MID_TTL} key is still in list`,
-    list.stdout.split("\n").includes("mid"),
-    list.stdout
-  );
   check("key without --ttl never expires", list.stdout.split("\n").includes("keep"), list.stdout);
 
-  // `mid` is set with --ttl 4: alive at ~3s, gone at ~5s. An implementation
-  // that shortens every TTL fails the first assertion; one that lengthens them
-  // (or never expires them) fails the second.
+  // Everything below belongs to `mid` alone. Bracketing its own expiry is what
+  // pins the supplied seconds to a real duration: a key that merely has to
+  // outlive the 1s keys would also survive an implementation that scales every
+  // TTL (e.g. `seconds * 500`), so `mid` must be alive well before its boundary
+  // AND expired shortly after it. An implementation that shortens every TTL
+  // fails the first read; one that lengthens them (or never expires them) fails
+  // the second.
+  //
+  // `mid` is set here, after the 1s assertions, so no unrelated work runs
+  // inside its window and eats the margins.
+  //
+  // The key is stamped at some instant inside the `set` process, so its real
+  // expiry lies in [midSetAt, midSetDone] + MID_TTL. The bounds are anchored
+  // accordingly -- earliest possible expiry for "alive", latest for "expired"
+  // -- so both hold even when that spawn is slow.
+  const midSetAt = Date.now();
+  runNode(["cli.js", "set", "mid", "alive", "--ttl", String(MID_TTL)], env);
+  const midSetDone = Date.now();
+
+  const midLive = runNode(["cli.js", "list"], env);
+  check(
+    `unexpired --ttl ${MID_TTL} key is in list`,
+    midLive.status === 0 && midLive.stdout.split("\n").includes("mid"),
+    `exit ${midLive.status}, stdout ${JSON.stringify(midLive.stdout)}, stderr ${JSON.stringify(midLive.stderr)}`
+  );
+
   await sleepUntil(midSetAt + MID_TTL * 1000 - MARGIN_MS);
   const midBefore = runNode(["cli.js", "get", "mid"], env);
   check(
