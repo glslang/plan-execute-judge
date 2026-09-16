@@ -74,12 +74,20 @@ const INPUTS = [
   "x (y) z",
 ];
 
-// maxLength runs from 1 -- covering limits below the first word's length, where
-// the only conforming answer is empty -- up to just past the whole slug.
-// Zero is left out: a zero-length limit is not a case the contract contemplates.
+// maxLength runs from 0 -- including limits below the first word's length,
+// where the only conforming answer is empty, and zero, where it is forced by
+// arithmetic rather than judgement (no string of length <= 0 but "") -- up to
+// just past the whole slug.
+//
+// Deliberately absent: inputs whose slug already ends in a preserved hyphen and
+// fits within maxLength, e.g. slugify("hello-", { maxLength: 10 }). Whether
+// "no trailing hyphen" is a post-condition on the returned value or a rule about
+// where to cut is genuinely ambiguous there, and a scoring check should not
+// adjudicate it -- the two readings disagree on whether the option may change a
+// result that needs no truncation.
 const cases = [];
 for (const input of INPUTS) {
-  for (let maxLength = 1; maxLength <= slugOf(input).length + 1; maxLength++) {
+  for (let maxLength = 0; maxLength <= slugOf(input).length + 1; maxLength++) {
     cases.push({ input, maxLength, want: expected(input, maxLength) });
   }
 }
