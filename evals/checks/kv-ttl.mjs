@@ -5,30 +5,46 @@ import { check, done, fixtureTestsStillPass, runNode } from "./_util.mjs";
 
 fixtureTestsStillPass("kvstore");
 
-// Seconds for the bracketed key. The assertions below sit MARGIN_MS either
-// side of its expiry, so both bounds tolerate process-spawn jitter: the key is
-// read ~1s before it may expire and ~1s after it must have.
-const MID_TTL = 4;
-const MARGIN_MS = 1000;
-
-/** Sleeps until `deadline` (ms epoch); returns immediately if already past. */
-const sleepUntil = (deadline) => new Promise((r) => setTimeout(r, Math.max(0, deadline - Date.now())));
-
 const dir = mkdtempSync(join(tmpdir(), "kv-ttl-check-"));
-const env = { KV_FILE: join(dir, "kv.json") };
+
+// Two stores, so the halves of this check cannot contaminate each other: keys
+// stamped against the real clock read as unexpired under an injected past
+// timestamp, and vice versa.
+const realFile = join(dir, "real.json");
+const simFile = join(dir, "sim.json");
+
+// Fixed instant for the injected-clock half. Verifying TTLs against KV_NOW
+// makes the arithmetic exact -- each key is read 1ms either side of its own
+// boundary, with no sleeping and no timing margin to tune. The reads straddle
+// the boundary rather than land on it, so an implementation may treat expiry as
+// inclusive or exclusive.
+const T0 = 1_700_000_000_000;
+const real = { KV_FILE: realFile };
+const at = (ms) => ({ KV_FILE: simFile, KV_NOW: String(ms) });
+
+const lines = (res) => res.stdout.split("\n");
+
 try {
-  const set = runNode(["cli.js", "set", "temp", "v", "--ttl", "1"], env);
+  // ---------------------------------------------------------------- real clock
+  // KV_NOW is absent here, so this half proves the store still expires against
+  // the system clock: an implementation that honors only the injected clock
+  // fails it.
+  const set = runNode(["cli.js", "set", "temp", "v", "--ttl", "1"], real);
   check("set with --ttl exits 0", set.status === 0, set.stderr);
   // Never read via `get` before the list assertion: catches implementations
   // that lazily purge expired keys on get but leave list TTL-unaware.
-  runNode(["cli.js", "set", "temp2", "v2", "--ttl", "1"], env);
-  const before = runNode(["cli.js", "get", "temp"], env);
-  check("get before expiry returns the value", before.status === 0 && before.stdout.trim() === "v", `exit ${before.status}, stdout ${JSON.stringify(before.stdout)}`);
+  runNode(["cli.js", "set", "temp2", "v2", "--ttl", "1"], real);
+  const before = runNode(["cli.js", "get", "temp"], real);
+  check(
+    "get before expiry returns the value",
+    before.status === 0 && before.stdout.trim() === "v",
+    `exit ${before.status}, stdout ${JSON.stringify(before.stdout)}`
+  );
 
-  runNode(["cli.js", "set", "keep", "stays"], env);
+  runNode(["cli.js", "set", "keep", "stays"], real);
   await new Promise((r) => setTimeout(r, 1400));
 
-  const after = runNode(["cli.js", "get", "temp"], env);
+  const after = runNode(["cli.js", "get", "temp"], real);
   check(
     "get after expiry behaves like a missing key (exit 1, nothing on stdout)",
     after.status === 1 && after.stdout.trim() === "",
@@ -40,61 +56,76 @@ try {
     `stderr ${JSON.stringify(after.stderr)}`
   );
 
-  const list = runNode(["cli.js", "list"], env);
-  check("expired key is absent from list", list.status === 0 && !list.stdout.split("\n").includes("temp"), list.stdout);
-  check(
-    "expired key never touched by get is also absent from list",
-    !list.stdout.split("\n").includes("temp2"),
-    list.stdout
-  );
-  check("key without --ttl never expires", list.stdout.split("\n").includes("keep"), list.stdout);
+  const list = runNode(["cli.js", "list"], real);
+  check("expired key is absent from list", list.status === 0 && !lines(list).includes("temp"), list.stdout);
+  check("expired key never touched by get is also absent from list", !lines(list).includes("temp2"), list.stdout);
+  check("key without --ttl never expires", lines(list).includes("keep"), list.stdout);
 
-  // Everything below belongs to `mid` alone. Bracketing its own expiry is what
-  // pins the supplied seconds to a real duration: a key that merely has to
-  // outlive the 1s keys would also survive an implementation that scales every
-  // TTL (e.g. `seconds * 500`), so `mid` must be alive well before its boundary
-  // AND expired shortly after it. An implementation that shortens every TTL
-  // fails the first read; one that lengthens them (or never expires them) fails
-  // the second.
-  //
-  // `mid` is set here, after the 1s assertions, so no unrelated work runs
-  // inside its window and eats the margins.
-  //
-  // The key is stamped at some instant inside the `set` process, so its real
-  // expiry lies in [midSetAt, midSetDone] + MID_TTL. The bounds are anchored
-  // accordingly -- earliest possible expiry for "alive", latest for "expired"
-  // -- so both hold even when that spawn is slow.
-  const midSetAt = Date.now();
-  runNode(["cli.js", "set", "mid", "alive", "--ttl", String(MID_TTL)], env);
-  const midSetDone = Date.now();
+  // ------------------------------------------------------------ injected clock
+  // Two different TTLs, so the supplied seconds are pinned to a real duration:
+  // a hardcoded expiry, or one that scales every TTL, cannot satisfy both
+  // boundaries.
+  const simSet = runNode(["cli.js", "set", "five", "v5", "--ttl", "5"], at(T0));
+  check("set with --ttl exits 0 under KV_NOW", simSet.status === 0, simSet.stderr);
+  runNode(["cli.js", "set", "five2", "v5", "--ttl", "5"], at(T0));
+  runNode(["cli.js", "set", "sixty", "v60", "--ttl", "60"], at(T0));
+  runNode(["cli.js", "set", "forever", "vf"], at(T0));
 
-  const midLive = runNode(["cli.js", "list"], env);
+  const fiveBefore = runNode(["cli.js", "get", "five"], at(T0 + 5_000 - 1));
   check(
-    `unexpired --ttl ${MID_TTL} key is in list`,
-    midLive.status === 0 && midLive.stdout.split("\n").includes("mid"),
-    `exit ${midLive.status}, stdout ${JSON.stringify(midLive.stdout)}, stderr ${JSON.stringify(midLive.stderr)}`
+    "--ttl 5 key is readable 1ms before its expiry",
+    fiveBefore.status === 0 && fiveBefore.stdout.trim() === "v5",
+    `exit ${fiveBefore.status}, stdout ${JSON.stringify(fiveBefore.stdout)}, stderr ${JSON.stringify(fiveBefore.stderr)}`
   );
 
-  await sleepUntil(midSetAt + MID_TTL * 1000 - MARGIN_MS);
-  const midBefore = runNode(["cli.js", "get", "mid"], env);
+  const fiveAfter = runNode(["cli.js", "get", "five"], at(T0 + 5_000 + 1));
   check(
-    `key set with --ttl ${MID_TTL} is still readable ~1s before its expiry (TTL is not shortened)`,
-    midBefore.status === 0 && midBefore.stdout.trim() === "alive",
-    `exit ${midBefore.status}, stdout ${JSON.stringify(midBefore.stdout)}, stderr ${JSON.stringify(midBefore.stderr)}`
+    "--ttl 5 key is expired 1ms after its expiry",
+    fiveAfter.status === 1 && fiveAfter.stdout.trim() === "",
+    `exit ${fiveAfter.status}, stdout ${JSON.stringify(fiveAfter.stdout)}`
   );
 
-  await sleepUntil(midSetDone + MID_TTL * 1000 + MARGIN_MS);
-  const midAfter = runNode(["cli.js", "get", "mid"], env);
+  const sixtyEarly = runNode(["cli.js", "get", "sixty"], at(T0 + 5_000 + 1));
   check(
-    `key set with --ttl ${MID_TTL} is expired ~1s after its expiry (TTL is not lengthened)`,
-    midAfter.status === 1 && midAfter.stdout.trim() === "",
-    `exit ${midAfter.status}, stdout ${JSON.stringify(midAfter.stdout)}`
+    "--ttl 60 key is still alive once the --ttl 5 key has expired (seconds honored per key)",
+    sixtyEarly.status === 0 && sixtyEarly.stdout.trim() === "v60",
+    `exit ${sixtyEarly.status}, stdout ${JSON.stringify(sixtyEarly.stdout)}, stderr ${JSON.stringify(sixtyEarly.stderr)}`
   );
-  const midList = runNode(["cli.js", "list"], env);
+
+  const sixtyBefore = runNode(["cli.js", "get", "sixty"], at(T0 + 60_000 - 1));
   check(
-    `key set with --ttl ${MID_TTL} is absent from list once expired`,
-    midList.status === 0 && !midList.stdout.split("\n").includes("mid"),
+    "--ttl 60 key is readable 1ms before its expiry",
+    sixtyBefore.status === 0 && sixtyBefore.stdout.trim() === "v60",
+    `exit ${sixtyBefore.status}, stdout ${JSON.stringify(sixtyBefore.stdout)}, stderr ${JSON.stringify(sixtyBefore.stderr)}`
+  );
+
+  const sixtyAfter = runNode(["cli.js", "get", "sixty"], at(T0 + 60_000 + 1));
+  check(
+    "--ttl 60 key is expired 1ms after its expiry",
+    sixtyAfter.status === 1 && sixtyAfter.stdout.trim() === "",
+    `exit ${sixtyAfter.status}, stdout ${JSON.stringify(sixtyAfter.stdout)}`
+  );
+
+  const midList = runNode(["cli.js", "list"], at(T0 + 5_000 + 1));
+  check(
+    "list reflects the injected clock: expired key gone, longer-lived keys still listed",
+    midList.status === 0 &&
+      !lines(midList).includes("five") &&
+      lines(midList).includes("sixty") &&
+      lines(midList).includes("forever"),
     `exit ${midList.status}, stdout ${JSON.stringify(midList.stdout)}, stderr ${JSON.stringify(midList.stderr)}`
+  );
+  check(
+    "expired key never touched by get is also absent under the injected clock",
+    !lines(midList).includes("five2"),
+    midList.stdout
+  );
+
+  const lateList = runNode(["cli.js", "list"], at(T0 + 60_000 + 1));
+  check(
+    "once both TTLs have elapsed, list keeps only the key set without --ttl",
+    lateList.status === 0 && lines(lateList).filter(Boolean).join(",") === "forever",
+    `exit ${lateList.status}, stdout ${JSON.stringify(lateList.stdout)}, stderr ${JSON.stringify(lateList.stderr)}`
   );
 } finally {
   rmSync(dir, { recursive: true, force: true });

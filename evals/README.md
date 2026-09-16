@@ -36,4 +36,13 @@ optimization would just teach the prompts to game the metric.
    the worktree (no deleting or skipping the regression suite), and asserts
    the passing-test count grew.
 4. Sanity-check both directions: the check must fail against the pristine
-   fixture and pass against a hand-made solution.
+   fixture and pass against a hand-made solution. Write a hand-made *loophole*
+   solution too, for whatever the check could accept but should not; if it
+   passes, the check is not yet ground truth.
+5. If the task involves time, put a clock seam in the contract rather than
+   sleeping in the check -- `kv-ttl` has the store read `KV_NOW` when it is
+   set. Assert either side of the exact boundary (never on it, so inclusive and
+   exclusive expiry both pass), and keep one real-clock assertion so an
+   implementation cannot honor the injected clock alone. Sleeping buys timing
+   margins that have to be tuned, slow every rollout, and still only bound the
+   duration loosely.
