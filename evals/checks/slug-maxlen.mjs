@@ -19,6 +19,13 @@ await checkFn("result never ends with a hyphen", () => {
 await checkFn('cut is computed on the slug, not the raw input: "hello, world" @10 -> "hello"', () => {
   return slugify("hello, world", { maxLength: 10 }) === "hello";
 });
+// Stronger still: the normalized slug "hi-there" is exactly 8 characters, so a
+// correct implementation returns it whole. Raw-input truncation cuts at 8 raw
+// characters ("hi!!! th") whatever it does with the partial word, losing a word
+// the slug had room for.
+await checkFn('slug that fits is kept whole even when the raw input is longer: "hi!!! there" @8 -> "hi-there"', () => {
+  return slugify("hi!!! there", { maxLength: 8 }) === "hi-there";
+});
 await checkFn("without the option behavior is unchanged", () => {
   return slugify("hello world") === "hello-world";
 });
