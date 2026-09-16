@@ -18,6 +18,7 @@ const dir = mkdtempSync(join(tmpdir(), "kv-ttl-check-"));
 // timestamp, and vice versa.
 const realFile = join(dir, "real.json");
 const simFile = join(dir, "sim.json");
+const epochFile = join(dir, "epoch.json");
 
 // Fixed instant for the injected-clock half. Verifying TTLs against KV_NOW
 // makes the arithmetic exact -- each key is read 1ms either side of its own
@@ -30,13 +31,17 @@ const real = { KV_FILE: realFile };
 // Simulated time must never rewind: an implementation is free to purge expired
 // records when it reads, so a key observed as expired can be gone for good.
 // Rewinding would demand it reappear and fail a correct purge-on-read store,
-// hence the guard rather than a comment.
-let lastNow = -Infinity;
-const at = (ms) => {
-  if (ms < lastNow) throw new Error(`check bug: KV_NOW rewound from ${lastNow} to ${ms}`);
-  lastNow = ms;
-  return { KV_FILE: simFile, KV_NOW: String(ms) };
-};
+// hence the guard rather than a comment. Each store keeps its own clock.
+function injectedClock(file) {
+  let last = -Infinity;
+  return (ms) => {
+    if (ms < last) throw new Error(`check bug: KV_NOW rewound from ${last} to ${ms} on ${file}`);
+    last = ms;
+    return { KV_FILE: file, KV_NOW: String(ms) };
+  };
+}
+const at = injectedClock(simFile);
+const atEpoch = injectedClock(epochFile);
 
 const lines = (res) => res.stdout.split("\n");
 
@@ -175,6 +180,27 @@ try {
     "once both TTLs have elapsed, list keeps only the key set without --ttl",
     lateList.status === 0 && lines(lateList).filter(Boolean).join(",") === "forever",
     `exit ${lateList.status}, stdout ${JSON.stringify(lateList.stdout)}, stderr ${JSON.stringify(lateList.stderr)}`
+  );
+  // ------------------------------------------------------------- epoch zero
+  // KV_NOW="0" is a valid instant, and it is the only place the difference
+  // between reading the variable and testing it for truthiness shows:
+  // `Number(process.env.KV_NOW) || Date.now()` silently reverts to the system
+  // clock there, which no other assertion here would notice.
+  const epochSet = runNode(["cli.js", "set", "zero", "vz", "--ttl", "5"], atEpoch(0));
+  check("set with --ttl exits 0 at KV_NOW=0", epochSet.status === 0, epochSet.stderr);
+
+  const epochBefore = runNode(["cli.js", "get", "zero"], atEpoch(5_000 - 1));
+  check(
+    "key set at KV_NOW=0 is readable 1ms before its expiry",
+    epochBefore.status === 0 && epochBefore.stdout.trim() === "vz",
+    `exit ${epochBefore.status}, stdout ${JSON.stringify(epochBefore.stdout)}, stderr ${JSON.stringify(epochBefore.stderr)}`
+  );
+
+  const epochAfter = runNode(["cli.js", "get", "zero"], atEpoch(5_000 + 1));
+  check(
+    "key set at KV_NOW=0 is expired 1ms after its expiry (the epoch is not treated as unset)",
+    epochAfter.status === 1 && epochAfter.stdout.trim() === "",
+    `exit ${epochAfter.status}, stdout ${JSON.stringify(epochAfter.stdout)}`
   );
 } finally {
   rmSync(dir, { recursive: true, force: true });
