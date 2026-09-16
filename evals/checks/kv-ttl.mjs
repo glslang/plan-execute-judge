@@ -106,6 +106,10 @@ try {
     ["five2", "v5", "--ttl", "5"],
     ["sixty", "v60", "--ttl", "60"],
     ["forever", "vf"],
+    // Overwritten below without --ttl, which must clear the expiry: the
+    // contract says a key set without the option never expires, and that holds
+    // for a key that had one before.
+    ["reset", "doomed", "--ttl", "5"],
   ];
   const failedSet = sets
     .map((args) => [args[0], runNode(["cli.js", "set", ...args], at(T0))])
@@ -115,6 +119,9 @@ try {
     failedSet.length === 0,
     failedSet.map(([key, res]) => `${key}: exit ${res.status}, stderr ${JSON.stringify(res.stderr)}`).join("; ")
   );
+
+  const overwrite = runNode(["cli.js", "set", "reset", "fresh"], at(T0 + 1_000));
+  check("overwriting a key without --ttl exits 0", overwrite.status === 0, overwrite.stderr);
 
   const fiveBefore = runNode(["cli.js", "get", "five"], at(T0 + 5_000 - 1));
   check(
@@ -127,8 +134,8 @@ try {
   // absence cannot be satisfied by the key never having been stored.
   const liveList = runNode(["cli.js", "list"], at(T0 + 5_000 - 1));
   check(
-    "all four keys are listed before any expiry",
-    liveList.status === 0 && ["five", "five2", "sixty", "forever"].every((k) => lines(liveList).includes(k)),
+    "all five keys are listed before any expiry",
+    liveList.status === 0 && ["five", "five2", "sixty", "forever", "reset"].every((k) => lines(liveList).includes(k)),
     `exit ${liveList.status}, stdout ${JSON.stringify(liveList.stdout)}, stderr ${JSON.stringify(liveList.stderr)}`
   );
 
@@ -146,13 +153,21 @@ try {
     `exit ${sixtyEarly.status}, stdout ${JSON.stringify(sixtyEarly.stdout)}, stderr ${JSON.stringify(sixtyEarly.stderr)}`
   );
 
+  const reset = runNode(["cli.js", "get", "reset"], at(T0 + 5_000 + 1));
+  check(
+    "overwriting a --ttl key without the option clears its expiry",
+    reset.status === 0 && reset.stdout.trim() === "fresh",
+    `exit ${reset.status}, stdout ${JSON.stringify(reset.stdout)}, stderr ${JSON.stringify(reset.stderr)}`
+  );
+
   const midList = runNode(["cli.js", "list"], at(T0 + 5_000 + 1));
   check(
     "list reflects the injected clock: expired key gone, longer-lived keys still listed",
     midList.status === 0 &&
       !lines(midList).includes("five") &&
       lines(midList).includes("sixty") &&
-      lines(midList).includes("forever"),
+      lines(midList).includes("forever") &&
+      lines(midList).includes("reset"),
     `exit ${midList.status}, stdout ${JSON.stringify(midList.stdout)}, stderr ${JSON.stringify(midList.stderr)}`
   );
   check(
@@ -177,8 +192,8 @@ try {
 
   const lateList = runNode(["cli.js", "list"], at(T0 + 60_000 + 1));
   check(
-    "once both TTLs have elapsed, list keeps only the key set without --ttl",
-    lateList.status === 0 && lines(lateList).filter(Boolean).join(",") === "forever",
+    "once both TTLs have elapsed, list keeps exactly the keys that cannot expire",
+    lateList.status === 0 && lines(lateList).filter(Boolean).join(",") === "forever,reset",
     `exit ${lateList.status}, stdout ${JSON.stringify(lateList.stdout)}, stderr ${JSON.stringify(lateList.stderr)}`
   );
   // ------------------------------------------------------------- epoch zero
