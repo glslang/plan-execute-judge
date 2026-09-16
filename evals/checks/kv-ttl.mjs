@@ -5,6 +5,11 @@ import { check, done, fixtureTestsStillPass, runNode } from "./_util.mjs";
 
 fixtureTestsStillPass("kvstore");
 
+// runNode merges its env over process.env, so a KV_NOW inherited from whoever
+// launched this check would leak into the real-clock half below and freeze its
+// clock, failing a correct implementation. Drop it up front.
+delete process.env.KV_NOW;
+
 const dir = mkdtempSync(join(tmpdir(), "kv-ttl-check-"));
 
 // Two stores, so the halves of this check cannot contaminate each other: keys
