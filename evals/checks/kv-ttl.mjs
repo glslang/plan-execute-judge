@@ -75,17 +75,37 @@ try {
   // Two different TTLs, so the supplied seconds are pinned to a real duration:
   // a hardcoded expiry, or one that scales every TTL, cannot satisfy both
   // boundaries.
-  const simSet = runNode(["cli.js", "set", "five", "v5", "--ttl", "5"], at(T0));
-  check("set with --ttl exits 0 under KV_NOW", simSet.status === 0, simSet.stderr);
-  runNode(["cli.js", "set", "five2", "v5", "--ttl", "5"], at(T0));
-  runNode(["cli.js", "set", "sixty", "v60", "--ttl", "60"], at(T0));
-  runNode(["cli.js", "set", "forever", "vf"], at(T0));
+  const sets = [
+    ["five", "v5", "--ttl", "5"],
+    // five2 is never read via `get`, so the later list assertion catches a
+    // store that purges expired keys on get but leaves list TTL-unaware.
+    ["five2", "v5", "--ttl", "5"],
+    ["sixty", "v60", "--ttl", "60"],
+    ["forever", "vf"],
+  ];
+  const failedSet = sets
+    .map((args) => [args[0], runNode(["cli.js", "set", ...args], at(T0))])
+    .filter(([, res]) => res.status !== 0);
+  check(
+    "every set under KV_NOW exits 0",
+    failedSet.length === 0,
+    failedSet.map(([key, res]) => `${key}: exit ${res.status}, stderr ${JSON.stringify(res.stderr)}`).join("; ")
+  );
 
   const fiveBefore = runNode(["cli.js", "get", "five"], at(T0 + 5_000 - 1));
   check(
     "--ttl 5 key is readable 1ms before its expiry",
     fiveBefore.status === 0 && fiveBefore.stdout.trim() === "v5",
     `exit ${fiveBefore.status}, stdout ${JSON.stringify(fiveBefore.stdout)}, stderr ${JSON.stringify(fiveBefore.stderr)}`
+  );
+
+  // Observe every key alive before asserting any of them expire, so a later
+  // absence cannot be satisfied by the key never having been stored.
+  const liveList = runNode(["cli.js", "list"], at(T0 + 5_000 - 1));
+  check(
+    "all four keys are listed before any expiry",
+    liveList.status === 0 && ["five", "five2", "sixty", "forever"].every((k) => lines(liveList).includes(k)),
+    `exit ${liveList.status}, stdout ${JSON.stringify(liveList.stdout)}, stderr ${JSON.stringify(liveList.stderr)}`
   );
 
   const fiveAfter = runNode(["cli.js", "get", "five"], at(T0 + 5_000 + 1));
