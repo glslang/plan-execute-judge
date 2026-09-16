@@ -3,12 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { check, done, fixtureTestsStillPass, runNode } from "./_util.mjs";
 
-fixtureTestsStillPass("kvstore");
-
 // runNode merges its env over process.env, so a KV_NOW inherited from whoever
-// launched this check would leak into the real-clock half below and freeze its
-// clock, failing a correct implementation. Drop it up front.
+// launched this check would leak into every subprocess -- the real-clock half
+// below, and the worktree's own test suite, whose added tests must be free to
+// exercise the system-clock path. Drop it before anything spawns.
 delete process.env.KV_NOW;
+
+fixtureTestsStillPass("kvstore");
 
 const dir = mkdtempSync(join(tmpdir(), "kv-ttl-check-"));
 
