@@ -13,6 +13,10 @@ try {
   // Never read via `get` before the list assertion: catches implementations
   // that lazily purge expired keys on get but leave list TTL-unaware.
   runNode(["cli.js", "set", "temp2", "v2", "--ttl", "1"], env);
+  // A long TTL, comfortably larger than the rest of this check's runtime:
+  // catches implementations that ignore the supplied seconds and hardcode a
+  // short (~1s) expiry for every --ttl key.
+  runNode(["cli.js", "set", "long", "lives", "--ttl", "30"], env);
 
   const before = runNode(["cli.js", "get", "temp"], env);
   check("get before expiry returns the value", before.status === 0 && before.stdout.trim() === "v", `exit ${before.status}, stdout ${JSON.stringify(before.stdout)}`);
@@ -32,11 +36,23 @@ try {
     `stderr ${JSON.stringify(after.stderr)}`
   );
 
+  const long = runNode(["cli.js", "get", "long"], env);
+  check(
+    "key set with --ttl 30 is still readable after ~1.4s (the TTL value is honored, not hardcoded)",
+    long.status === 0 && long.stdout.trim() === "lives",
+    `exit ${long.status}, stdout ${JSON.stringify(long.stdout)}, stderr ${JSON.stringify(long.stderr)}`
+  );
+
   const list = runNode(["cli.js", "list"], env);
   check("expired key is absent from list", list.status === 0 && !list.stdout.split("\n").includes("temp"), list.stdout);
   check(
     "expired key never touched by get is also absent from list",
     !list.stdout.split("\n").includes("temp2"),
+    list.stdout
+  );
+  check(
+    "key set with --ttl 30 is still in list after ~1.4s",
+    list.stdout.split("\n").includes("long"),
     list.stdout
   );
   check("key without --ttl never expires", list.stdout.split("\n").includes("keep"), list.stdout);

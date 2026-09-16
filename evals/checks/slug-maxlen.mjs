@@ -13,6 +13,12 @@ await checkFn("result never ends with a hyphen", () => {
   const out = slugify("alpha beta gamma", { maxLength: 11 });
   return out === "alpha-beta" && !out.endsWith("-");
 });
+// The raw input and its slug diverge before maxLength here ("hello, world"
+// truncated to 10 raw chars is "hello, wor" -> "hello-wor"), so truncating the
+// input before slugifying cuts mid-word and fails this.
+await checkFn('cut is computed on the slug, not the raw input: "hello, world" @10 -> "hello"', () => {
+  return slugify("hello, world", { maxLength: 10 }) === "hello";
+});
 await checkFn("without the option behavior is unchanged", () => {
   return slugify("hello world") === "hello-world";
 });
